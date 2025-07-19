@@ -1,8 +1,8 @@
 import { api } from './authService'
 
 /**
- * Route Controller - Handles all route-related API operations
- * Centralizes route data fetching from all models for better organization
+ * Route Controller - REAL API ONLY VERSION
+ * Handles all route-related API operations without any mock data fallbacks
  */
 export class RouteController {
   constructor() {
@@ -12,314 +12,224 @@ export class RouteController {
   // ==================== BASIC ROUTE OPERATIONS ====================
   
   /**
-   * Get all routes with optional filtering and pagination
-   * @param {Object} params - Query parameters (page, limit, search, riskLevel, etc.)
-   * @returns {Promise<Object>} Routes data with pagination info
+   * Get all routes from real API only
    */
   async getAllRoutes(params = {}) {
     try {
       const queryString = new URLSearchParams(params).toString()
       const response = await api.get(`${this.baseUrl}?${queryString}`)
+      
+      console.log('RouteController: Real API getAllRoutes response:', response.data)
+      
+      // Return the actual API response without modification
       return response.data
     } catch (error) {
-      throw this.handleError('Failed to fetch routes', error)
+      console.error('RouteController: Real API getAllRoutes error:', error)
+      throw this.handleError('Failed to fetch routes from API', error)
     }
   }
 
   /**
-   * Get a single route by ID
-   * @param {string} routeId - Route ID (_id or routeId)
-   * @returns {Promise<Object>} Route data
+   * Get a single route by ID from real API only
    */
   async getRouteById(routeId) {
     try {
-      console.log('RouteController: Fetching route by ID:', routeId)
+      console.log('RouteController: Fetching route from real API:', routeId)
       const response = await api.get(`${this.baseUrl}/${routeId}`)
-      console.log('RouteController: Route response:', response.data)
+      console.log('RouteController: Real API route response:', response.data)
+      
       return response.data
     } catch (error) {
-      console.error('RouteController: Error fetching route:', error)
-      throw this.handleError(`Failed to fetch route ${routeId}`, error)
+      console.error('RouteController: Real API route fetch error:', error)
+      throw this.handleError(`Failed to fetch route ${routeId} from API`, error)
     }
   }
 
-  /**
-   * Create a new route
-   * @param {Object} routeData - Route information
-   * @returns {Promise<Object>} Created route data
-   */
-  async createRoute(routeData) {
-    try {
-      const response = await api.post(this.baseUrl, routeData)
-      return response.data
-    } catch (error) {
-      throw this.handleError('Failed to create route', error)
-    }
-  }
+  // ==================== DATA FETCHING FROM REAL APIs ====================
 
   /**
-   * Update an existing route
-   * @param {string} routeId - Route ID
-   * @param {Object} routeData - Updated route information
-   * @returns {Promise<Object>} Updated route data
-   */
-  async updateRoute(routeId, routeData) {
-    try {
-      const response = await api.put(`${this.baseUrl}/${routeId}`, routeData)
-      return response.data
-    } catch (error) {
-      throw this.handleError(`Failed to update route ${routeId}`, error)
-    }
-  }
-
-  /**
-   * Delete a route (soft delete)
-   * @param {string} routeId - Route ID
-   * @returns {Promise<Object>} Deletion confirmation
-   */
-  async deleteRoute(routeId) {
-    try {
-      const response = await api.delete(`${this.baseUrl}/${routeId}`)
-      return response.data
-    } catch (error) {
-      throw this.handleError(`Failed to delete route ${routeId}`, error)
-    }
-  }
-
-  // ==================== GPS AND ROUTE DATA ====================
-
-  /**
-   * Upload GPS route from CSV file
-   * @param {FormData} formData - Form data containing CSV file
-   * @returns {Promise<Object>} Upload result
-   */
-  async uploadGPSRoute(formData) {
-    try {
-      const response = await api.post(`${this.baseUrl}/upload-gps-route`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      })
-      return response.data
-    } catch (error) {
-      throw this.handleError('Failed to upload GPS route', error)
-    }
-  }
-
-  /**
-   * Get GPS points for a route
-   * @param {string} routeId - Route ID
-   * @returns {Promise<Array>} GPS points array
+   * Get GPS points from real API
    */
   async getGPSPoints(routeId) {
     try {
+      console.log('RouteController: Fetching GPS points from real API:', routeId)
       const response = await api.get(`${this.baseUrl}/${routeId}/gps-points`)
+      console.log('RouteController: Real API GPS points response:', response.data)
       return response.data
     } catch (error) {
+      console.error('RouteController: Real API GPS points error:', error.message)
       throw this.handleError(`Failed to fetch GPS points for route ${routeId}`, error)
     }
   }
 
   /**
-   * Collect all data for a route (comprehensive data collection)
-   * @param {string} routeId - Route ID
-   * @returns {Promise<Object>} Collection result
-   */
-  async collectAllRouteData(routeId) {
-    try {
-      const response = await api.post(`${this.baseUrl}/${routeId}/collect-all-data`)
-      return response.data
-    } catch (error) {
-      throw this.handleError(`Failed to collect all data for route ${routeId}`, error)
-    }
-  }
-
-  // ==================== SAFETY AND HAZARD DATA ====================
-
-  /**
-   * Get emergency services along the route
-   * @param {string} routeId - Route ID
-   * @param {Object} filters - Optional filters (type, distance, etc.)
-   * @returns {Promise<Array>} Emergency services data
+   * Get emergency services from real API
    */
   async getEmergencyServices(routeId, filters = {}) {
     try {
+      console.log('RouteController: Fetching emergency services from real API:', routeId)
       const queryString = new URLSearchParams(filters).toString()
       const url = queryString ? 
         `${this.baseUrl}/${routeId}/emergency-services?${queryString}` : 
         `${this.baseUrl}/${routeId}/emergency-services`
+      
       const response = await api.get(url)
+      console.log('RouteController: Real API emergency services response:', response.data)
       return response.data
     } catch (error) {
+      console.error('RouteController: Real API emergency services error:', error.message)
       throw this.handleError(`Failed to fetch emergency services for route ${routeId}`, error)
     }
   }
 
   /**
-   * Get accident-prone areas along the route
-   * @param {string} routeId - Route ID
-   * @param {Object} filters - Optional filters (severity, type, etc.)
-   * @returns {Promise<Array>} Accident areas data
-   */
-  async getAccidentAreas(routeId, filters = {}) {
-    try {
-      const queryString = new URLSearchParams(filters).toString()
-      const url = queryString ? 
-        `${this.baseUrl}/${routeId}/accident-areas?${queryString}` : 
-        `${this.baseUrl}/${routeId}/accident-areas`
-      const response = await api.get(url)
-      return response.data
-    } catch (error) {
-      throw this.handleError(`Failed to fetch accident areas for route ${routeId}`, error)
-    }
-  }
-
-  /**
-   * Get sharp turns along the route
-   * @param {string} routeId - Route ID
-   * @param {Object} filters - Optional filters (severity, angle, etc.)
-   * @returns {Promise<Array>} Sharp turns data
-   */
-  async getSharpTurns(routeId, filters = {}) {
-    try {
-      const queryString = new URLSearchParams(filters).toString()
-      const url = queryString ? 
-        `/api/visibility/routes/${routeId}/sharp-turns?${queryString}` : 
-        `/api/visibility/routes/${routeId}/sharp-turns`
-      const response = await api.get(url)
-      return response.data
-    } catch (error) {
-      throw this.handleError(`Failed to fetch sharp turns for route ${routeId}`, error)
-    }
-  }
-
-  /**
-   * Get blind spots along the route
-   * @param {string} routeId - Route ID
-   * @param {Object} filters - Optional filters (severity, type, etc.)
-   * @returns {Promise<Array>} Blind spots data
-   */
-  async getBlindSpots(routeId, filters = {}) {
-    try {
-      const queryString = new URLSearchParams(filters).toString()
-      const url = queryString ? 
-        `/api/visibility/routes/${routeId}/blind-spots?${queryString}` : 
-        `/api/visibility/routes/${routeId}/blind-spots`
-      const response = await api.get(url)
-      return response.data
-    } catch (error) {
-      throw this.handleError(`Failed to fetch blind spots for route ${routeId}`, error)
-    }
-  }
-
-  // ==================== ENVIRONMENTAL DATA ====================
-
-  /**
-   * Get weather data for the route
-   * @param {string} routeId - Route ID
-   * @param {Object} filters - Optional filters (date, type, etc.)
-   * @returns {Promise<Array>} Weather data
+   * Get weather data from real API
    */
   async getWeatherData(routeId, filters = {}) {
     try {
+      console.log('RouteController: Fetching weather data from real API:', routeId)
       const queryString = new URLSearchParams(filters).toString()
       const url = queryString ? 
         `${this.baseUrl}/${routeId}/weather-data?${queryString}` : 
         `${this.baseUrl}/${routeId}/weather-data`
+      
       const response = await api.get(url)
+      console.log('RouteController: Real API weather data response:', response.data)
       return response.data
     } catch (error) {
+      console.error('RouteController: Real API weather data error:', error.message)
       throw this.handleError(`Failed to fetch weather data for route ${routeId}`, error)
     }
   }
 
   /**
-   * Get traffic data for the route
-   * @param {string} routeId - Route ID
-   * @param {Object} filters - Optional filters (time, severity, etc.)
-   * @returns {Promise<Array>} Traffic data
+   * Get traffic data from real API
    */
   async getTrafficData(routeId, filters = {}) {
     try {
+      console.log('RouteController: Fetching traffic data from real API:', routeId)
       const queryString = new URLSearchParams(filters).toString()
       const url = queryString ? 
         `${this.baseUrl}/${routeId}/traffic-data?${queryString}` : 
         `${this.baseUrl}/${routeId}/traffic-data`
+      
       const response = await api.get(url)
+      console.log('RouteController: Real API traffic data response:', response.data)
       return response.data
     } catch (error) {
+      console.error('RouteController: Real API traffic data error:', error.message)
       throw this.handleError(`Failed to fetch traffic data for route ${routeId}`, error)
     }
   }
 
   /**
-   * Get road conditions for the route
-   * @param {string} routeId - Route ID
-   * @param {Object} filters - Optional filters (type, severity, etc.)
-   * @returns {Promise<Array>} Road conditions data
+   * Get accident areas from real API
+   */
+  async getAccidentAreas(routeId, filters = {}) {
+    try {
+      console.log('RouteController: Fetching accident areas from real API:', routeId)
+      const queryString = new URLSearchParams(filters).toString()
+      const url = queryString ? 
+        `${this.baseUrl}/${routeId}/accident-areas?${queryString}` : 
+        `${this.baseUrl}/${routeId}/accident-areas`
+      
+      const response = await api.get(url)
+      console.log('RouteController: Real API accident areas response:', response.data)
+      return response.data
+    } catch (error) {
+      console.error('RouteController: Real API accident areas error:', error.message)
+      throw this.handleError(`Failed to fetch accident areas for route ${routeId}`, error)
+    }
+  }
+
+  /**
+   * Get road conditions from real API
    */
   async getRoadConditions(routeId, filters = {}) {
     try {
+      console.log('RouteController: Fetching road conditions from real API:', routeId)
       const queryString = new URLSearchParams(filters).toString()
       const url = queryString ? 
         `${this.baseUrl}/${routeId}/road-conditions?${queryString}` : 
         `${this.baseUrl}/${routeId}/road-conditions`
+      
       const response = await api.get(url)
+      console.log('RouteController: Real API road conditions response:', response.data)
       return response.data
     } catch (error) {
+      console.error('RouteController: Real API road conditions error:', error.message)
       throw this.handleError(`Failed to fetch road conditions for route ${routeId}`, error)
     }
   }
 
-  // ==================== NETWORK AND CONNECTIVITY ====================
+  /**
+   * Get sharp turns from real API
+   */
+  async getSharpTurns(routeId, filters = {}) {
+    try {
+      console.log('RouteController: Fetching sharp turns from real API:', routeId)
+      const queryString = new URLSearchParams(filters).toString()
+      const url = queryString ? 
+        `/api/visibility/routes/${routeId}/sharp-turns?${queryString}` : 
+        `/api/visibility/routes/${routeId}/sharp-turns`
+      
+      const response = await api.get(url)
+      console.log('RouteController: Real API sharp turns response:', response.data)
+      return response.data
+    } catch (error) {
+      console.error('RouteController: Real API sharp turns error:', error.message)
+      throw this.handleError(`Failed to fetch sharp turns for route ${routeId}`, error)
+    }
+  }
 
   /**
-   * Get network coverage data for the route
-   * @param {string} routeId - Route ID
-   * @param {Object} filters - Optional filters (operator, signal strength, etc.)
-   * @returns {Promise<Array>} Network coverage data
+   * Get blind spots from real API
+   */
+  async getBlindSpots(routeId, filters = {}) {
+    try {
+      console.log('RouteController: Fetching blind spots from real API:', routeId)
+      const queryString = new URLSearchParams(filters).toString()
+      const url = queryString ? 
+        `/api/visibility/routes/${routeId}/blind-spots?${queryString}` : 
+        `/api/visibility/routes/${routeId}/blind-spots`
+      
+      const response = await api.get(url)
+      console.log('RouteController: Real API blind spots response:', response.data)
+      return response.data
+    } catch (error) {
+      console.error('RouteController: Real API blind spots error:', error.message)
+      throw this.handleError(`Failed to fetch blind spots for route ${routeId}`, error)
+    }
+  }
+
+  /**
+   * Get network coverage from real API
    */
   async getNetworkCoverage(routeId, filters = {}) {
     try {
+      console.log('RouteController: Fetching network coverage from real API:', routeId)
       const queryString = new URLSearchParams(filters).toString()
       const url = queryString ? 
         `/api/network-coverage/routes/${routeId}/overview?${queryString}` : 
         `/api/network-coverage/routes/${routeId}/overview`
+      
       const response = await api.get(url)
+      console.log('RouteController: Real API network coverage response:', response.data)
       return response.data
     } catch (error) {
+      console.error('RouteController: Real API network coverage error:', error.message)
       throw this.handleError(`Failed to fetch network coverage for route ${routeId}`, error)
     }
   }
 
-  /**
-   * Get network dead zones for the route
-   * @param {string} routeId - Route ID
-   * @param {string} severity - Severity filter ('all', 'critical', 'moderate', 'low')
-   * @returns {Promise<Array>} Dead zones data
-   */
-  async getNetworkDeadZones(routeId, severity = 'all') {
-    try {
-      const response = await api.get(`/api/network-coverage/routes/${routeId}/dead-zones?severity=${severity}`)
-      return response.data
-    } catch (error) {
-      throw this.handleError(`Failed to fetch network dead zones for route ${routeId}`, error)
-    }
-  }
-
-  // ==================== COMPREHENSIVE DATA FETCHING ====================
+  // ==================== COMPREHENSIVE DATA FETCHING FROM REAL APIs ONLY ====================
 
   /**
-   * Get all route-related data in parallel for comprehensive view
-   * @param {string} routeId - Route ID
-   * @param {Object} options - Options for data fetching
-   * @returns {Promise<Object>} All route data organized by category
+   * Get all route-related data from real APIs only - NO FALLBACKS
    */
   async getAllRouteData(routeId, options = {}) {
     try {
-      console.log('RouteController: Getting all route data for route:', routeId)
-      console.log('RouteController: Route ID type:', typeof routeId)
-      console.log('RouteController: Options:', options)
+      console.log('RouteController: Getting comprehensive route data from REAL APIs only for:', routeId)
       
       const {
         includeGPS = true,
@@ -334,181 +244,226 @@ export class RouteController {
         filters = {}
       } = options
 
-      const promises = []
+      // Start with basic route info from real API
+      console.log('RouteController: Fetching basic route info from real API...')
+      const routeData = await this.getRouteById(routeId)
+      
+      if (!routeData) {
+        throw new Error('Route not found in API')
+      }
+
+      // Prepare parallel data fetching from real APIs
+      const dataPromises = []
       const dataKeys = []
 
-      // Basic route info
-      promises.push(this.getRouteById(routeId))
-      dataKeys.push('route')
-
-      // GPS data
+      // Add data collection promises based on options
       if (includeGPS) {
-        promises.push(this.getGPSPoints(routeId))
+        dataPromises.push(this.getGPSPoints(routeId))
         dataKeys.push('gpsPoints')
       }
 
-      // Safety and hazard data
       if (includeEmergencyServices) {
-        promises.push(this.getEmergencyServices(routeId, filters.emergencyServices))
+        dataPromises.push(this.getEmergencyServices(routeId, filters.emergencyServices))
         dataKeys.push('emergencyServices')
       }
 
-      if (includeAccidentAreas) {
-        promises.push(this.getAccidentAreas(routeId, filters.accidentAreas))
-        dataKeys.push('accidentAreas')
-      }
-
-      if (includeSharpTurns) {
-        promises.push(this.getSharpTurns(routeId, filters.sharpTurns))
-        dataKeys.push('sharpTurns')
-      }
-
-      if (includeBlindSpots) {
-        promises.push(this.getBlindSpots(routeId, filters.blindSpots))
-        dataKeys.push('blindSpots')
-      }
-
-      // Environmental data
       if (includeWeather) {
-        promises.push(this.getWeatherData(routeId, filters.weather))
+        dataPromises.push(this.getWeatherData(routeId, filters.weather))
         dataKeys.push('weatherData')
       }
 
       if (includeTraffic) {
-        promises.push(this.getTrafficData(routeId, filters.traffic))
+        dataPromises.push(this.getTrafficData(routeId, filters.traffic))
         dataKeys.push('trafficData')
       }
 
+      if (includeAccidentAreas) {
+        dataPromises.push(this.getAccidentAreas(routeId, filters.accidentAreas))
+        dataKeys.push('accidentAreas')
+      }
+
       if (includeRoadConditions) {
-        promises.push(this.getRoadConditions(routeId, filters.roadConditions))
+        dataPromises.push(this.getRoadConditions(routeId, filters.roadConditions))
         dataKeys.push('roadConditions')
       }
 
-      // Network data
+      if (includeSharpTurns) {
+        dataPromises.push(this.getSharpTurns(routeId, filters.sharpTurns))
+        dataKeys.push('sharpTurns')
+      }
+
+      if (includeBlindSpots) {
+        dataPromises.push(this.getBlindSpots(routeId, filters.blindSpots))
+        dataKeys.push('blindSpots')
+      }
+
       if (includeNetworkCoverage) {
-        promises.push(this.getNetworkCoverage(routeId, filters.networkCoverage))
+        dataPromises.push(this.getNetworkCoverage(routeId, filters.networkCoverage))
         dataKeys.push('networkCoverage')
       }
 
-      // Execute all promises in parallel
-      const results = await Promise.allSettled(promises)
+      // Execute all real API promises
+      console.log('RouteController: Executing', dataPromises.length, 'real API calls...')
+      const results = await Promise.allSettled(dataPromises)
       
-      // Process results
-      const data = {}
+      // Process results from real APIs only
+      const data = {
+        route: routeData
+      }
       const errors = []
-
-      console.log('RouteController: Promise results:', results.map((r, i) => ({
-        key: dataKeys[i],
-        status: r.status,
-        success: r.status === 'fulfilled' ? r.value?.success : false,
-        dataLength: r.status === 'fulfilled' && r.value ? (Array.isArray(r.value) ? r.value.length : 'object') : 'no data'
-      })))
 
       results.forEach((result, index) => {
         const key = dataKeys[index]
+        
         if (result.status === 'fulfilled') {
-          data[key] = result.value
-          console.log(`RouteController: ${key} data:`, result.value)
+          const responseData = result.value
+          
+          // Extract the actual data array from real API response
+          data[key] = this.extractDataArray(responseData)
+          console.log(`RouteController: ${key} from real API - Success:`, data[key].length, 'items')
         } else {
-          console.error(`RouteController: ${key} failed:`, result.reason)
-          errors.push({ key, error: result.reason })
-          data[key] = null
+          console.error(`RouteController: ${key} real API call failed:`, result.reason.message)
+          // NO FALLBACKS - let the error bubble up or set empty array
+          data[key] = []
+          errors.push({ key, error: result.reason.message })
         }
+      })
+
+      console.log('RouteController: Real API data collection completed:', {
+        route: !!data.route,
+        dataKeys: Object.keys(data).filter(k => k !== 'route'),
+        errorCount: errors.length
       })
 
       return {
         success: true,
         data,
         errors: errors.length > 0 ? errors : null,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        source: 'REAL_API_ONLY'
       }
-    } catch (error) {
-      throw this.handleError(`Failed to fetch comprehensive data for route ${routeId}`, error)
-    }
-  }
 
-  // ==================== ANALYSIS AND PROCESSING ====================
-
-  /**
-   * Analyze route visibility (sharp turns and blind spots)
-   * @param {string} routeId - Route ID
-   * @returns {Promise<Object>} Visibility analysis result
-   */
-  async analyzeVisibility(routeId) {
-    try {
-      const response = await api.post(`/api/visibility/routes/${routeId}/analyze-sharp-turns`)
-      return response.data
     } catch (error) {
-      throw this.handleError(`Failed to analyze visibility for route ${routeId}`, error)
-    }
-  }
-
-  /**
-   * Analyze network coverage for the route
-   * @param {string} routeId - Route ID
-   * @returns {Promise<Object>} Network analysis result
-   */
-  async analyzeNetworkCoverage(routeId) {
-    try {
-      const response = await api.post(`/api/network-coverage/routes/${routeId}/analyze`)
-      return response.data
-    } catch (error) {
-      throw this.handleError(`Failed to analyze network coverage for route ${routeId}`, error)
-    }
-  }
-
-  /**
-   * Analyze enhanced road conditions
-   * @param {string} routeId - Route ID
-   * @param {boolean} forceRefresh - Force refresh of analysis
-   * @returns {Promise<Object>} Road conditions analysis result
-   */
-  async analyzeRoadConditions(routeId, forceRefresh = false) {
-    try {
-      const response = await api.post(`/api/enhanced-road-conditions/routes/${routeId}/analyze`, { forceRefresh })
-      return response.data
-    } catch (error) {
-      throw this.handleError(`Failed to analyze road conditions for route ${routeId}`, error)
+      console.error('RouteController: Real API comprehensive data fetch failed:', error)
+      throw this.handleError(`Failed to fetch comprehensive data from real API for route ${routeId}`, error)
     }
   }
 
   // ==================== UTILITY METHODS ====================
 
   /**
+   * Extract data array from real API response
+   */
+  extractDataArray(data) {
+    if (!data) return []
+    
+    // If it's already an array
+    if (Array.isArray(data)) return data
+    
+    // Try to extract array from real API response patterns
+    if (data.data && Array.isArray(data.data)) return data.data
+    if (data.results && Array.isArray(data.results)) return data.results
+    if (data.items && Array.isArray(data.items)) return data.items
+    if (data.services && Array.isArray(data.services)) return data.services
+    if (data.conditions && Array.isArray(data.conditions)) return data.conditions
+    if (data.areas && Array.isArray(data.areas)) return data.areas
+    if (data.turns && Array.isArray(data.turns)) return data.turns
+    if (data.spots && Array.isArray(data.spots)) return data.spots
+    if (data.points && Array.isArray(data.points)) return data.points
+    if (data.coverage && Array.isArray(data.coverage)) return data.coverage
+    
+    // If it's a single object from API, wrap it in an array
+    if (typeof data === 'object' && data !== null) {
+      return [data]
+    }
+    
+    return []
+  }
+
+  /**
    * Handle and format errors consistently
-   * @param {string} message - Error message
-   * @param {Error} error - Original error
-   * @returns {Error} Formatted error
    */
   handleError(message, error) {
-    console.error(`RouteController Error: ${message}`, error)
+    console.error(`RouteController Error: ${message}`, {
+      originalError: error.message,
+      status: error.response?.status,
+      data: error.response?.data,
+      url: error.config?.url
+    })
     
     const formattedError = new Error(message)
     formattedError.originalError = error
     formattedError.status = error.response?.status
     formattedError.data = error.response?.data
+    formattedError.isAPIError = true
     
     return formattedError
   }
 
+  // ==================== CRUD OPERATIONS ====================
+
   /**
-   * Process API response to ensure consistent array format
-   * @param {*} data - API response data
-   * @returns {Array} Processed data as array
+   * Create a new route via real API
    */
-  processToArray(data) {
-    if (!data) return []
-    if (Array.isArray(data)) return data
-    
-    // Try to extract array from common response patterns
-    if (data.data && Array.isArray(data.data)) return data.data
-    if (data.results && Array.isArray(data.results)) return data.results
-    if (data.items && Array.isArray(data.items)) return data.items
-    
-    // If it's an object, wrap it in an array
-    if (typeof data === 'object') return [data]
-    
-    return []
+  async createRoute(routeData) {
+    try {
+      const response = await api.post(this.baseUrl, routeData)
+      return response.data
+    } catch (error) {
+      throw this.handleError('Failed to create route via API', error)
+    }
+  }
+
+  /**
+   * Update an existing route via real API
+   */
+  async updateRoute(routeId, routeData) {
+    try {
+      const response = await api.put(`${this.baseUrl}/${routeId}`, routeData)
+      return response.data
+    } catch (error) {
+      throw this.handleError(`Failed to update route ${routeId} via API`, error)
+    }
+  }
+
+  /**
+   * Delete a route via real API
+   */
+  async deleteRoute(routeId) {
+    try {
+      const response = await api.delete(`${this.baseUrl}/${routeId}`)
+      return response.data
+    } catch (error) {
+      throw this.handleError(`Failed to delete route ${routeId} via API`, error)
+    }
+  }
+
+  /**
+   * Upload GPS route via real API
+   */
+  async uploadGPSRoute(formData) {
+    try {
+      const response = await api.post(`${this.baseUrl}/upload-gps-route`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      return response.data
+    } catch (error) {
+      throw this.handleError('Failed to upload GPS route via API', error)
+    }
+  }
+
+  /**
+   * Collect all data for a route via real API
+   */
+  async collectAllRouteData(routeId) {
+    try {
+      const response = await api.post(`${this.baseUrl}/${routeId}/collect-all-data`)
+      return response.data
+    } catch (error) {
+      throw this.handleError(`Failed to collect all data for route ${routeId} via API`, error)
+    }
   }
 }
 

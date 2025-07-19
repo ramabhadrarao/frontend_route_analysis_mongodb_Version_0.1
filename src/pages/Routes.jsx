@@ -17,14 +17,10 @@ import {
   XCircle,
   Loader
 } from 'lucide-react'
-import { apiService } from '../services/apiService'
-import { routeService } from '../services'
-import { RISK_LEVELS } from '../utils/constants'
-import { formatDistance, getRiskLevel, getRiskColor } from '../utils/helpers'
+import { api } from '../services/authService'
+import { formatDistance, getRiskLevel, getRiskColor, formatDate } from '../utils/helpers'
 import Button from '../components/UI/Button'
 import Card from '../components/UI/Card'
-import Input from '../components/UI/Input'
-import Select from '../components/UI/Select'
 import Badge from '../components/UI/Badge'
 import LoadingSpinner from '../components/UI/LoadingSpinner'
 
@@ -42,10 +38,12 @@ const Routes = () => {
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 10,
-    total: 0
+    total: 0,
+    totalPages: 0
   })
   const [showFilters, setShowFilters] = useState(false)
   const [viewMode, setViewMode] = useState('grid')
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     loadRoutes()
@@ -56,23 +54,7 @@ const Routes = () => {
       setLoading(true)
       setError(null)
       
-      // Check authentication
-      const token = localStorage.getItem('authToken')
-      if (!token) {
-        try {
-          const loginResponse = await apiService.auth.login({
-            email: 'test@example.com',
-            password: 'Test123456'
-          })
-          if (loginResponse.token) {
-            localStorage.setItem('authToken', loginResponse.token)
-          }
-        } catch (loginError) {
-          console.error('Auto-login failed:', loginError)
-          setError('Authentication required. Please login.')
-          return
-        }
-      }
+      console.log('Frontend Routes: Loading routes from API...')
       
       const params = {
         page: pagination.page,
@@ -83,19 +65,58 @@ const Routes = () => {
         )
       }
       
-      const response = await routeService.getRoutes(params)
-      const routesData = response.data?.routes || []
-      const paginationData = response.data?.pagination || {}
+      const queryString = new URLSearchParams(params).toString()
+      const response = await api.get(`/api/routes?${queryString}`)
+      
+      console.log('Frontend Routes: Raw API response:', response.data)
+      
+      // Handle the actual API response structure
+      let routesData = []
+      let totalRoutes = 0
+      
+      if (response.data) {
+        // Check various possible response structures from your backend
+        if (Array.isArray(response.data)) {
+          // Direct array response
+          routesData = response.data
+          totalRoutes = response.data.length
+        } else if (response.data.routes && Array.isArray(response.data.routes)) {
+          // { routes: [...], pagination: {...} }
+          routesData = response.data.routes
+          totalRoutes = response.data.pagination?.totalRoutes || response.data.routes.length
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          // { data: [...] }
+          routesData = response.data.data
+          totalRoutes = response.data.data.length
+        } else if (response.data.data && response.data.data.routes && Array.isArray(response.data.data.routes)) {
+          // { data: { routes: [...], pagination: {...} } }
+          routesData = response.data.data.routes
+          totalRoutes = response.data.data.pagination?.totalRoutes || response.data.data.routes.length
+        } else {
+          // Single route object
+          routesData = [response.data]
+          totalRoutes = 1
+        }
+      }
+      
+      console.log('Frontend Routes: Processed routes data:', {
+        routesCount: routesData.length,
+        totalRoutes: totalRoutes,
+        firstRoute: routesData[0]
+      })
       
       setRoutes(routesData)
       setPagination(prev => ({
         ...prev,
-        total: paginationData.totalRoutes || 0
+        total: totalRoutes,
+        totalPages: Math.ceil(totalRoutes / pagination.limit)
       }))
+      
     } catch (error) {
-      console.error('Failed to load routes:', error)
-      setError('Failed to load routes. Please try again.')
+      console.error('Frontend Routes: API call failed:', error)
+      setError(`Failed to load routes: ${error.response?.data?.message || error.message}`)
       setRoutes([])
+      toast.error(`Failed to load routes: ${error.response?.data?.message || error.message}`)
     } finally {
       setLoading(false)
     }
@@ -111,14 +132,17 @@ const Routes = () => {
     setPagination(prev => ({ ...prev, page: 1 }))
   }
 
-  const handleRefresh = () => {
-    loadRoutes()
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await loadRoutes()
+    setRefreshing(false)
   }
 
   const handleDownloadReport = async (routeId) => {
     try {
-      toast.success(`Downloading report for route ${routeId}...`)
-      // Implement PDF download logic here
+      toast.success(`Preparing report for route ${routeId}...`)
+      // Implement actual download when ready
+      toast.info('Report download feature will be implemented soon')
     } catch (error) {
       console.error('Download error:', error)
       toast.error('Failed to download report')
@@ -143,6 +167,35 @@ const Routes = () => {
     }
   }
 
+  const getProcessingStatus = (route) => {
+    if (!route.dataProcessingStatus) return 'pending'
+    
+    const statuses = Object.values(route.dataProcessingStatus)
+    const completed = statuses.filter(status => status === true).length
+    const total = statuses.length
+    
+    if (completed === total) return 'completed'
+    if (completed > 0) return 'processing'
+    return 'pending'
+  }
+
+  // Safe data extraction helpers
+  const safeGet = (obj, path, defaultValue = '') => {
+    try {
+      return path.split('.').reduce((current, key) => current?.[key], obj) || defaultValue
+    } catch {
+      return defaultValue
+    }
+  }
+
+  const getRouteRiskLevel = (route) => {
+    return route.riskLevel || getRiskLevel(route.riskScore || route.riskScores?.totalWeightedScore || 0)
+  }
+
+  const getRouteDistance = (route) => {
+    return formatDistance(route.totalDistance || 0)
+  }
+
   const riskLevelOptions = [
     { value: 'all', label: 'All Risk Levels' },
     { value: 'LOW', label: 'Low Risk' },
@@ -158,25 +211,10 @@ const Routes = () => {
     { value: 'archived', label: 'Archived' }
   ]
 
-  const processingStatusOptions = [
-    { value: 'all', label: 'All Processing Status' },
-    { value: 'completed', label: 'Completed' },
-    { value: 'processing', label: 'Processing' },
-    { value: 'failed', label: 'Failed' },
-    { value: 'pending', label: 'Pending' }
-  ]
-
-  const dateRangeOptions = [
-    { value: 'all', label: 'All Time' },
-    { value: '7d', label: 'Last 7 Days' },
-    { value: '30d', label: 'Last 30 Days' },
-    { value: '90d', label: 'Last 90 Days' }
-  ]
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <LoadingSpinner size="lg" text="Loading routes..." />
+        <LoadingSpinner size="lg" text="Loading routes from API..." />
       </div>
     )
   }
@@ -186,10 +224,10 @@ const Routes = () => {
       <div className="flex flex-col items-center justify-center h-64 space-y-4">
         <XCircle className="w-12 h-12 text-red-500" />
         <div className="text-center">
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Error Loading Routes</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">API Error</h3>
           <p className="text-gray-500 mb-4">{error}</p>
           <Button onClick={handleRefresh} variant="primary">
-            Try Again
+            Retry API Call
           </Button>
         </div>
       </div>
@@ -202,15 +240,18 @@ const Routes = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Routes Management</h1>
-          <p className="text-gray-600">Manage and analyze your journey routes with comprehensive data</p>
+          <p className="text-gray-600">
+            Manage and analyze your journey routes ({routes.length} routes loaded from API)
+          </p>
         </div>
         <div className="flex space-x-3">
           <Button
             variant="outline"
             icon={RefreshCw}
             onClick={handleRefresh}
+            loading={refreshing}
           >
-            Refresh
+            Refresh API
           </Button>
           <Link to="/bulk-processor">
             <Button variant="primary" icon={Plus}>
@@ -224,13 +265,16 @@ const Routes = () => {
       <Card className="p-4">
         <div className="flex flex-col lg:flex-row gap-4">
           <div className="flex-1">
-            <Input
-              type="text"
-              placeholder="Search routes by name, origin, or destination..."
-              value={searchTerm}
-              onChange={(e) => handleSearch(e.target.value)}
-              icon={Search}
-            />
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="Search routes by name, origin, or destination..."
+                value={searchTerm}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
           </div>
           <div className="flex gap-2">
             <Button
@@ -240,14 +284,14 @@ const Routes = () => {
             >
               Filters
             </Button>
-            <Select
+            <select
               value={viewMode}
-              onChange={(value) => setViewMode(value)}
-              options={[
-                { value: 'grid', label: 'Grid View' },
-                { value: 'table', label: 'Table View' }
-              ]}
-            />
+              onChange={(e) => setViewMode(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="grid">Grid View</option>
+              <option value="table">Table View</option>
+            </select>
           </div>
         </div>
 
@@ -255,30 +299,30 @@ const Routes = () => {
         {showFilters && (
           <div className="mt-4 pt-4 border-t border-gray-200">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Select
-                label="Risk Level"
-                value={filters.riskLevel}
-                onChange={(value) => handleFilterChange('riskLevel', value)}
-                options={riskLevelOptions}
-              />
-              <Select
-                label="Status"
-                value={filters.status}
-                onChange={(value) => handleFilterChange('status', value)}
-                options={statusOptions}
-              />
-              <Select
-                label="Processing Status"
-                value={filters.processingStatus}
-                onChange={(value) => handleFilterChange('processingStatus', value)}
-                options={processingStatusOptions}
-              />
-              <Select
-                label="Date Range"
-                value={filters.dateRange}
-                onChange={(value) => handleFilterChange('dateRange', value)}
-                options={dateRangeOptions}
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Risk Level</label>
+                <select
+                  value={filters.riskLevel}
+                  onChange={(e) => handleFilterChange('riskLevel', e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  {riskLevelOptions.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  value={filters.status}
+                  onChange={(e) => handleFilterChange('status', e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  {statusOptions.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         )}
@@ -287,103 +331,91 @@ const Routes = () => {
       {/* Routes Display */}
       {viewMode === 'grid' ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {routes.map((route) => (
-            <Card key={route.routeId || route._id} className="p-6 hover:shadow-lg transition-shadow">
-              <div className="space-y-4">
-                {/* Header */}
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                      {route.routeName}
-                    </h3>
-                    <div className="flex items-center text-sm text-gray-600 mb-2">
-                      <MapPin className="w-4 h-4 mr-1" />
-                      {route.fromAddress} → {route.toAddress}
+          {routes.map((route) => {
+            const routeId = route._id || route.routeId
+            const routeName = route.routeName || 'Unnamed Route'
+            const fromLocation = route.fromAddress || route.fromName || 'Unknown Origin'
+            const toLocation = route.toAddress || route.toName || 'Unknown Destination'
+            const riskLevel = getRouteRiskLevel(route)
+            const distance = getRouteDistance(route)
+            const processingStatus = getProcessingStatus(route)
+            
+            return (
+              <Card key={routeId} className="p-6 hover:shadow-lg transition-shadow">
+                <div className="space-y-4">
+                  {/* Header */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                        {routeName}
+                      </h3>
+                      <div className="flex items-center text-sm text-gray-600 mb-2">
+                        <MapPin className="w-4 h-4 mr-1" />
+                        <span className="truncate">
+                          {fromLocation} → {toLocation}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Badge
-                      variant={getRiskColor(route.riskLevel)}
-                      className="text-xs"
-                    >
-                      {route.riskLevel}
-                    </Badge>
-                    <div className={`px-2 py-1 rounded-full text-xs font-medium ${getProcessingStatusColor(route.dataProcessingStatus)}`}>
-                      <div className="flex items-center space-x-1">
-                        {getProcessingStatusIcon(route.dataProcessingStatus)}
-                        <span>{route.dataProcessingStatus}</span>
+                    <div className="flex items-center space-x-2 ml-2">
+                      <Badge
+                        variant={getRiskColor(riskLevel)}
+                        className="text-xs"
+                      >
+                        {riskLevel}
+                      </Badge>
+                      <div className={`px-2 py-1 rounded-full text-xs font-medium ${getProcessingStatusColor(processingStatus)}`}>
+                        <div className="flex items-center space-x-1">
+                          {getProcessingStatusIcon(processingStatus)}
+                          <span>{processingStatus}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Route Stats */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <div className="text-lg font-semibold text-gray-900">
-                      {formatDistance(route.totalDistance)}
+                  {/* Route Stats */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center p-3 bg-gray-50 rounded-lg">
+                      <div className="text-lg font-semibold text-gray-900">
+                        {distance}
+                      </div>
+                      <div className="text-xs text-gray-600">Distance</div>
                     </div>
-                    <div className="text-xs text-gray-600">Distance</div>
-                  </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <div className="text-lg font-semibold text-gray-900">
-                      {route.riskScore || 0}
+                    <div className="text-center p-3 bg-gray-50 rounded-lg">
+                      <div className="text-lg font-semibold text-gray-900">
+                        {route.riskScore || route.riskScores?.totalWeightedScore || 0}
+                      </div>
+                      <div className="text-xs text-gray-600">Risk Score</div>
                     </div>
-                    <div className="text-xs text-gray-600">Risk Score</div>
                   </div>
-                </div>
 
-                {/* Risk Indicators */}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="flex items-center justify-between p-2 bg-red-50 rounded">
-                    <div className="flex items-center">
-                      <AlertTriangle className="w-3 h-3 text-red-500 mr-1" />
-                      <span>Accidents</span>
+                  {/* Route Meta */}
+                  <div className="text-xs text-gray-500 border-t pt-2">
+                    <div className="flex justify-between">
+                      <span>Created: {formatDate(route.createdAt)}</span>
+                      <span>ID: {routeId?.toString().slice(-8)}</span>
                     </div>
-                    <span className="font-medium">{route.accidentAreasCount || 0}</span>
                   </div>
-                  <div className="flex items-center justify-between p-2 bg-orange-50 rounded">
-                    <div className="flex items-center">
-                      <Eye className="w-3 h-3 text-orange-500 mr-1" />
-                      <span>Blind Spots</span>
-                    </div>
-                    <span className="font-medium">{route.blindSpotsCount || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-blue-50 rounded">
-                    <div className="flex items-center">
-                      <Phone className="w-3 h-3 text-blue-500 mr-1" />
-                      <span>Emergency</span>
-                    </div>
-                    <span className="font-medium">{route.emergencyServicesCount || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-purple-50 rounded">
-                    <div className="flex items-center">
-                      <Wifi className="w-3 h-3 text-purple-500 mr-1" />
-                      <span>Network</span>
-                    </div>
-                    <span className="font-medium">{route.networkDeadZones || 0}</span>
-                  </div>
-                </div>
 
-                {/* Actions */}
-                <div className="flex space-x-2 pt-2 border-t border-gray-200">
-                  <Link to={`/routes/${route._id || route.routeId}`} className="flex-1">
-                    <Button variant="outline" size="sm" icon={Eye} className="w-full">
-                      View Details
+                  {/* Actions */}
+                  <div className="flex space-x-2 pt-2 border-t border-gray-200">
+                    <Link to={`/routes/${routeId}`} className="flex-1">
+                      <Button variant="outline" size="sm" icon={Eye} className="w-full">
+                        View Details
+                      </Button>
+                    </Link>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      icon={Download}
+                      onClick={() => handleDownloadReport(routeId)}
+                    >
+                      PDF
                     </Button>
-                  </Link>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    icon={Download}
-                    onClick={() => handleDownloadReport(route._id || route.routeId)}
-                  >
-                    PDF
-                  </Button>
+                  </div>
                 </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            )
+          })}
         </div>
       ) : (
         /* Table View */
@@ -405,75 +437,66 @@ const Routes = () => {
                     Status
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Risk Factors
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {routes.map((route) => (
-                  <tr key={route.routeId || route._id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">
-                          {route.routeName}
+                {routes.map((route) => {
+                  const routeId = route._id || route.routeId
+                  const routeName = route.routeName || 'Unnamed Route'
+                  const fromLocation = route.fromAddress || route.fromName || 'Unknown Origin'
+                  const toLocation = route.toAddress || route.toName || 'Unknown Destination'
+                  const riskLevel = getRouteRiskLevel(route)
+                  const distance = getRouteDistance(route)
+                  const processingStatus = getProcessingStatus(route)
+                  
+                  return (
+                    <tr key={routeId} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">
+                            {routeName}
+                          </div>
+                          <div className="text-sm text-gray-500 truncate max-w-xs">
+                            {fromLocation} → {toLocation}
+                          </div>
                         </div>
-                        <div className="text-sm text-gray-500">
-                          {route.fromAddress} → {route.toAddress}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {distance}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Badge variant={getRiskColor(riskLevel)}>
+                          {riskLevel} ({route.riskScore || route.riskScores?.totalWeightedScore || 0})
+                        </Badge>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getProcessingStatusColor(processingStatus)}`}>
+                          {getProcessingStatusIcon(processingStatus)}
+                          <span className="ml-1">{processingStatus}</span>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDistance(route.totalDistance)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Badge variant={getRiskColor(route.riskLevel)}>
-                        {route.riskLevel} ({route.riskScore || 0})
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getProcessingStatusColor(route.dataProcessingStatus)}`}>
-                        {getProcessingStatusIcon(route.dataProcessingStatus)}
-                        <span className="ml-1">{route.dataProcessingStatus}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex space-x-2 text-xs">
-                        <span className="bg-red-100 text-red-800 px-2 py-1 rounded">
-                          A: {route.accidentAreasCount || 0}
-                        </span>
-                        <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded">
-                          B: {route.blindSpotsCount || 0}
-                        </span>
-                        <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                          E: {route.emergencyServicesCount || 0}
-                        </span>
-                        <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded">
-                          N: {route.networkDeadZones || 0}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
-                        <Link to={`/routes/${route._id || route.routeId}`}>
-                          <Button variant="outline" size="sm" icon={Eye}>
-                            View
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex space-x-2">
+                          <Link to={`/routes/${routeId}`}>
+                            <Button variant="outline" size="sm" icon={Eye}>
+                              View
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            icon={Download}
+                            onClick={() => handleDownloadReport(routeId)}
+                          >
+                            PDF
                           </Button>
-                        </Link>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          icon={Download}
-                          onClick={() => handleDownloadReport(route._id || route.routeId)}
-                        >
-                          PDF
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -496,33 +519,10 @@ const Routes = () => {
               >
                 Previous
               </Button>
-              {Array.from({ length: Math.min(Math.ceil(pagination.total / pagination.limit), 5) }, (_, i) => {
-                const totalPages = Math.ceil(pagination.total / pagination.limit)
-                let page
-                if (totalPages <= 5) {
-                  page = i + 1
-                } else if (pagination.page <= 3) {
-                  page = i + 1
-                } else if (pagination.page >= totalPages - 2) {
-                  page = totalPages - 4 + i
-                } else {
-                  page = pagination.page - 2 + i
-                }
-                return (
-                  <Button
-                    key={page}
-                    variant={pagination.page === page ? 'primary' : 'outline'}
-                    size="sm"
-                    onClick={() => setPagination(prev => ({ ...prev, page }))}
-                  >
-                    {page}
-                  </Button>
-                )
-              })}
               <Button
                 variant="outline"
                 size="sm"
-                disabled={pagination.page >= Math.ceil(pagination.total / pagination.limit)}
+                disabled={pagination.page >= pagination.totalPages}
                 onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
               >
                 Next
@@ -542,7 +542,7 @@ const Routes = () => {
           <p className="text-gray-500 mb-4">
             {searchTerm || Object.values(filters).some(f => f !== 'all') 
               ? 'Try adjusting your search criteria or filters.'
-              : 'Get started by uploading your first route data.'}
+              : 'No routes available from the API. Upload some route data to get started.'}
           </p>
           <Link to="/bulk-processor">
             <Button variant="primary" icon={Plus}>
