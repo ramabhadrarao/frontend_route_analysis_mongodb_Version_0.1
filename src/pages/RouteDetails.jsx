@@ -165,25 +165,109 @@ const RouteDetails = () => {
     })
   }
 
-  const extractDataArray = (data) => {
-    if (!data) return []
-    if (Array.isArray(data)) return data
-    if (data.data && Array.isArray(data.data)) return data.data
-    if (data.results && Array.isArray(data.results)) return data.results
-    if (data.items && Array.isArray(data.items)) return data.items
+  const extractDataArray = (apiResponse) => {
+    console.log('🔍 Extracting data from API response:', apiResponse)
     
-    // Handle specific API response structures
-    if (data.roadConditions && Array.isArray(data.roadConditions)) return data.roadConditions
-    if (data.trafficPoints && Array.isArray(data.trafficPoints)) return data.trafficPoints
-    if (data.emergencyServices && Array.isArray(data.emergencyServices)) return data.emergencyServices
-    if (data.weatherPoints && Array.isArray(data.weatherPoints)) return data.weatherPoints
-    if (data.weatherData && Array.isArray(data.weatherData)) return data.weatherData
-    if (data.accidentAreas && Array.isArray(data.accidentAreas)) return data.accidentAreas
-    if (data.gpsPoints && Array.isArray(data.gpsPoints)) return data.gpsPoints
-    if (data.sharpTurns && Array.isArray(data.sharpTurns)) return data.sharpTurns
-    if (data.blindSpots && Array.isArray(data.blindSpots)) return data.blindSpots
+    if (!apiResponse) return []
     
-    if (typeof data === 'object') return [data]
+    // Direct array check
+    if (Array.isArray(apiResponse)) {
+      console.log('✅ Direct array response:', apiResponse.length, 'items')
+      return apiResponse
+    }
+    
+    // Check for success flag first
+    if (apiResponse.success === false) {
+      console.log('❌ API returned success: false')
+      return []
+    }
+    
+    // Handle your specific API structure: { success: true, data: { specificArray: [...] } }
+    if (apiResponse.success && apiResponse.data) {
+      const dataObj = apiResponse.data
+      
+      // Check for specific array properties in the nested data object
+      if (dataObj.gpsPoints && Array.isArray(dataObj.gpsPoints)) {
+        console.log('✅ Found gpsPoints array:', dataObj.gpsPoints.length, 'items')
+        return dataObj.gpsPoints
+      }
+      
+      if (dataObj.sharpTurns && Array.isArray(dataObj.sharpTurns)) {
+        console.log('✅ Found sharpTurns array:', dataObj.sharpTurns.length, 'items')
+        return dataObj.sharpTurns
+      }
+      
+      if (dataObj.blindSpots && Array.isArray(dataObj.blindSpots)) {
+        console.log('✅ Found blindSpots array:', dataObj.blindSpots.length, 'items')
+        return dataObj.blindSpots
+      }
+      
+      if (dataObj.emergencyServices && Array.isArray(dataObj.emergencyServices)) {
+        console.log('✅ Found emergencyServices array:', dataObj.emergencyServices.length, 'items')
+        return dataObj.emergencyServices
+      }
+      
+      if (dataObj.accidentAreas && Array.isArray(dataObj.accidentAreas)) {
+        console.log('✅ Found accidentAreas array:', dataObj.accidentAreas.length, 'items')
+        return dataObj.accidentAreas
+      }
+      
+      if (dataObj.roadConditions && Array.isArray(dataObj.roadConditions)) {
+        console.log('✅ Found roadConditions array:', dataObj.roadConditions.length, 'items')
+        return dataObj.roadConditions
+      }
+      
+      if (dataObj.networkCoverage && Array.isArray(dataObj.networkCoverage)) {
+        console.log('✅ Found networkCoverage array:', dataObj.networkCoverage.length, 'items')
+        return dataObj.networkCoverage
+      }
+      
+      if (dataObj.weatherData && Array.isArray(dataObj.weatherData)) {
+        console.log('✅ Found weatherData array:', dataObj.weatherData.length, 'items')
+        return dataObj.weatherData
+      }
+      
+      if (dataObj.trafficData && Array.isArray(dataObj.trafficData)) {
+        console.log('✅ Found trafficData array:', dataObj.trafficData.length, 'items')
+        return dataObj.trafficData
+      }
+      
+      // Fallback: check if data itself is an array
+      if (Array.isArray(dataObj)) {
+        console.log('✅ Data object is array:', dataObj.length, 'items')
+        return dataObj
+      }
+      
+      // Check for generic array properties
+      if (dataObj.results && Array.isArray(dataObj.results)) {
+        console.log('✅ Found results array:', dataObj.results.length, 'items')
+        return dataObj.results
+      }
+      
+      if (dataObj.items && Array.isArray(dataObj.items)) {
+        console.log('✅ Found items array:', dataObj.items.length, 'items')
+        return dataObj.items
+      }
+    }
+    
+    // Fallback for other response formats
+    if (apiResponse.data && Array.isArray(apiResponse.data)) {
+      console.log('✅ Found direct data array:', apiResponse.data.length, 'items')
+      return apiResponse.data
+    }
+    
+    if (apiResponse.results && Array.isArray(apiResponse.results)) {
+      console.log('✅ Found direct results array:', apiResponse.results.length, 'items')
+      return apiResponse.results
+    }
+    
+    // Single object fallback
+    if (typeof apiResponse === 'object' && apiResponse !== null) {
+      console.log('⚠️ Single object converted to array')
+      return [apiResponse]
+    }
+    
+    console.warn('❌ No valid array data found, returning empty array')
     return []
   }
 
@@ -309,6 +393,7 @@ const RouteDetails = () => {
     console.log('🔍 Debug - Raw mapData.roadConditions:', mapData.roadConditions);
     console.log('🔍 Debug - Is array?', Array.isArray(mapData.roadConditions));
     console.log('🔍 Debug - Length:', mapData.roadConditions?.length);
+    console.log('🔍 Debug - Sample item:', mapData.roadConditions?.[0]);
     
     if (!Array.isArray(mapData.roadConditions)) return []
     if (filters.roadConditionType === 'all') return mapData.roadConditions
