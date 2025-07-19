@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Download, FileText, Play, RefreshCw, Eye, Zap, Activity, AlertTriangle, CheckCircle } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { Download, FileText, Play, RefreshCw, Eye, Zap, Activity, AlertTriangle, CheckCircle, X, Pause } from 'lucide-react'
 import { apiService } from '../services/apiService'
 import { generateCSVTemplate } from '../utils/helpers'
 import { DATA_COLLECTION_OPTIONS } from '../utils/constants'
@@ -19,10 +19,11 @@ const BulkProcessor = () => {
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(null)
   const [results, setResults] = useState(null)
+  const [processingId, setProcessingId] = useState(null) // Track processing session
   const [options, setOptions] = useState({
-    mode: 'enhancedWithVisibility', // New default mode
-    concurrentRoutes: 2, // Reduced for visibility analysis
-    backgroundProcessing: true,
+    mode: 'enhancedWithVisibility',
+    concurrentRoutes: 2,
+    backgroundProcessing: false, // Change default to false for better tracking
     dataCollectionMode: 'comprehensive',
     skipExistingRoutes: true,
     
@@ -36,18 +37,247 @@ const BulkProcessor = () => {
     [DATA_COLLECTION_OPTIONS.EMERGENCY_SERVICES]: true,
     [DATA_COLLECTION_OPTIONS.TRAFFIC_DATA]: true,
     
-    // NEW: Automatic Visibility Analysis Options
+    // Automatic Visibility Analysis Options
     enableAutomaticVisibilityAnalysis: true,
     visibilityAnalysisMode: 'comprehensive',
-    visibilityAnalysisTimeout: 180000, // 3 minutes
+    visibilityAnalysisTimeout: 180000,
     continueOnVisibilityFailure: true,
     downloadImages: false,
     generateReports: false
   })
 
+  // Refs for managing polling
+  const pollIntervalRef = useRef(null)
+  const mountedRef = useRef(true)
+
+  // Check for existing processing on component mount
+  useEffect(() => {
+    checkExistingProcessing()
+    
+    return () => {
+      mountedRef.current = false
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+    }
+  }, [])
+
+  // Save processing state to localStorage
+  const saveProcessingState = (state) => {
+    localStorage.setItem('bulkProcessingState', JSON.stringify({
+      ...state,
+      timestamp: Date.now()
+    }))
+  }
+
+  // Load processing state from localStorage
+  const loadProcessingState = () => {
+    try {
+      const saved = localStorage.getItem('bulkProcessingState')
+      if (saved) {
+        const state = JSON.parse(saved)
+        // Only restore if it's recent (within 24 hours)
+        if (Date.now() - state.timestamp < 24 * 60 * 60 * 1000) {
+          return state
+        }
+      }
+    } catch (error) {
+      console.error('Error loading processing state:', error)
+    }
+    return null
+  }
+
+  // Clear processing state
+  const clearProcessingState = () => {
+    localStorage.removeItem('bulkProcessingState')
+  }
+
+  // Check for existing processing on page load
+  const checkExistingProcessing = async () => {
+    const savedState = loadProcessingState()
+    
+    if (savedState && savedState.processing) {
+      console.log('Found existing processing state, checking status...')
+      setProcessing(true)
+      setProgress(savedState.progress || null)
+      setProcessingId(savedState.processingId || null)
+      
+      // Start polling immediately
+      startProgressPolling()
+      
+      toast.info('Resuming bulk processing status tracking...')
+    }
+  }
+
+  // Start progress polling
+  const startProgressPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+    }
+
+    console.log('Starting progress polling...')
+    
+    pollIntervalRef.current = setInterval(async () => {
+      if (!mountedRef.current) {
+        clearInterval(pollIntervalRef.current)
+        return
+      }
+
+      try {
+        await pollProgress()
+      } catch (error) {
+        console.error('Progress polling error:', error)
+        // Don't stop polling on single error, just log it
+      }
+    }, 2000) // Poll every 2 seconds
+  }
+
+  // Stop progress polling
+  const stopProgressPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+  }
+
+  // Enhanced progress polling with better error handling
+  const pollProgress = async () => {
+    try {
+      console.log('Polling progress from API...')
+      const response = await apiService.bulkProcessor.getStatus()
+      
+      console.log('Progress poll response:', response)
+      
+      if (!mountedRef.current) return
+
+      // Update progress state
+      const newProgress = {
+        status: response.status || 'processing',
+        currentRoute: response.currentRoute || 'Processing...',
+        totalRoutes: response.totalRoutes || 0,
+        completedRoutes: response.completedRoutes || 0,
+        failedRoutes: response.failedRoutes || 0,
+        estimatedTimeRemaining: response.estimatedTimeRemaining || 'Calculating...',
+        
+        // Enhanced progress data
+        visibilityAnalysis: response.visibilityAnalysis || {
+          attempted: 0,
+          successful: 0,
+          failed: 0,
+          currentRoute: null,
+          totalSharpTurns: 0,
+          totalBlindSpots: 0,
+          criticalTurns: 0,
+          criticalBlindSpots: 0
+        },
+        
+        enhancedDataCollection: response.enhancedDataCollection || {
+          attempted: 0,
+          successful: 0,
+          failed: 0,
+          sharpTurnsCollected: 0,
+          blindSpotsCollected: 0,
+          networkCoverageAnalyzed: 0,
+          roadConditionsAnalyzed: 0,
+          accidentDataCollected: 0,
+          seasonalWeatherCollected: 0,
+          totalRecordsCreated: 0,
+          collectionBreakdown: {}
+        },
+        
+        // Processing details
+        processingMode: response.processingMode || options.mode,
+        dataCollectionMode: response.dataCollectionMode || options.dataCollectionMode,
+        timestamp: new Date().toISOString()
+      }
+
+      setProgress(newProgress)
+
+      // Save state for persistence
+      saveProcessingState({
+        processing: true,
+        progress: newProgress,
+        processingId: processingId,
+        options: options
+      })
+
+      // Check if processing is complete
+      if (response.status === 'completed') {
+        console.log('Processing completed!')
+        handleProcessingComplete(response)
+      } else if (response.status === 'failed') {
+        console.log('Processing failed!')
+        handleProcessingFailed(response)
+      } else if (response.status === 'cancelled') {
+        console.log('Processing cancelled!')
+        handleProcessingCancelled(response)
+      }
+
+    } catch (error) {
+      console.error('Progress polling failed:', error)
+      
+      // Handle different types of errors
+      if (error.response?.status === 404) {
+        // No active processing found
+        console.log('No active processing found, stopping polling')
+        handleProcessingComplete(null)
+      } else if (error.response?.status >= 500) {
+        // Server error, continue polling but show warning
+        toast.error('Server error while checking progress. Retrying...')
+      } else {
+        // Other errors, show message but continue polling
+        console.warn('Progress check failed, will retry:', error.message)
+      }
+    }
+  }
+
+  // Handle processing completion
+  const handleProcessingComplete = (response) => {
+    setProcessing(false)
+    stopProgressPolling()
+    clearProcessingState()
+
+    if (response && response.results) {
+      setResults(response.results)
+      
+      // Show completion message with stats
+      const stats = response.results
+      if (stats.enhancedDataCollectionStats) {
+        toast.success(
+          `Processing completed! ${stats.successful || 0} routes processed with ${stats.enhancedDataCollectionStats.totalRecordsCreated || 0} data records created.`
+        )
+      } else {
+        toast.success(`Processing completed! ${stats.successful || 0} routes processed successfully.`)
+      }
+    } else {
+      toast.success('Processing completed successfully!')
+    }
+  }
+
+  // Handle processing failure
+  const handleProcessingFailed = (response) => {
+    setProcessing(false)
+    stopProgressPolling()
+    clearProcessingState()
+    
+    const errorMessage = response?.error || response?.message || 'Processing failed'
+    toast.error(`Processing failed: ${errorMessage}`)
+  }
+
+  // Handle processing cancellation
+  const handleProcessingCancelled = (response) => {
+    setProcessing(false)
+    stopProgressPolling()
+    clearProcessingState()
+    
+    toast.info('Processing was cancelled')
+  }
+
   const handleFileSelect = (file) => {
     setSelectedFile(file)
     setResults(null)
+    // Clear any previous processing state when new file is selected
+    clearProcessingState()
   }
 
   const handleRemoveFile = () => {
@@ -63,7 +293,7 @@ const BulkProcessor = () => {
     const formData = new FormData()
     formData.append('routesCsvFile', selectedFile)
     
-    // Add all parameters as expected by the new backend API
+    // Add all parameters as expected by the backend API
     formData.append('dataFolderPath', './data')
     formData.append('terrainType', 'mixed')
     formData.append('dataCollectionMode', options.dataCollectionMode || 'comprehensive')
@@ -81,7 +311,7 @@ const BulkProcessor = () => {
     formData.append('downloadImages', options.downloadImages.toString())
     formData.append('generateReports', options.generateReports.toString())
     
-    // NEW: Automatic Visibility Analysis Parameters
+    // Automatic Visibility Analysis Parameters
     formData.append('enableAutomaticVisibilityAnalysis', options.enableAutomaticVisibilityAnalysis.toString())
     formData.append('visibilityAnalysisTimeout', options.visibilityAnalysisTimeout.toString())
     formData.append('continueOnVisibilityFailure', options.continueOnVisibilityFailure.toString())
@@ -89,94 +319,116 @@ const BulkProcessor = () => {
 
     try {
       setProcessing(true)
-      setProgress({
-        status: 'processing',
+      setResults(null)
+      
+      // Generate processing ID for tracking
+      const newProcessingId = `bulk-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      setProcessingId(newProcessingId)
+      
+      // Initial progress state
+      const initialProgress = {
+        status: 'starting',
         currentRoute: 'Initializing enhanced processing with visibility analysis...',
         totalRoutes: 0,
         completedRoutes: 0,
         failedRoutes: 0,
-        estimatedTimeRemaining: 'Calculating... (includes visibility analysis)',
-        // NEW: Visibility analysis progress tracking
+        estimatedTimeRemaining: 'Calculating...',
         visibilityAnalysis: {
           attempted: 0,
           successful: 0,
           failed: 0,
           currentRoute: null
-        }
+        },
+        enhancedDataCollection: {
+          attempted: 0,
+          successful: 0,
+          failed: 0,
+          totalRecordsCreated: 0
+        },
+        processingMode: options.mode,
+        dataCollectionMode: options.dataCollectionMode,
+        timestamp: new Date().toISOString()
+      }
+      
+      setProgress(initialProgress)
+      
+      // Save initial state
+      saveProcessingState({
+        processing: true,
+        progress: initialProgress,
+        processingId: newProcessingId,
+        options: options
       })
+
+      console.log('Starting enhanced processing with ID:', newProcessingId)
 
       // Use the enhanced endpoint with visibility analysis
       const response = await apiService.bulkProcessor.processCSVEnhanced(formData)
+      console.log('Processing start response:', response)
 
       if (response.success) {
-        // Start polling for progress
-        pollProgress()
+        // Start polling for progress immediately
+        startProgressPolling()
         
-        if (options.enableAutomaticVisibilityAnalysis) {
-          toast.success('Enhanced processing with automatic visibility analysis started!')
-        } else {
-          toast.success('Enhanced processing started successfully!')
+        const message = options.enableAutomaticVisibilityAnalysis 
+          ? 'Enhanced processing with automatic visibility analysis started!'
+          : 'Enhanced processing started successfully!'
+        
+        toast.success(message)
+        
+        // If background processing is disabled, the response might contain immediate results
+        if (!options.backgroundProcessing && response.data) {
+          // Handle immediate completion for foreground processing
+          setTimeout(() => {
+            handleProcessingComplete({ results: response.data })
+          }, 1000)
         }
       } else {
-        throw new Error(response.message || 'Processing failed')
+        throw new Error(response.message || 'Processing failed to start')
       }
     } catch (error) {
-      console.error('Processing error:', error)
-      toast.error(error.message || 'Failed to start processing')
+      console.error('Processing start error:', error)
       setProcessing(false)
       setProgress(null)
+      clearProcessingState()
+      
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to start processing'
+      toast.error(errorMessage)
     }
   }
 
-  const pollProgress = async () => {
+  const handleStopProcessing = async () => {
     try {
-      const response = await apiService.bulkProcessor.getStatus()
+      // Stop polling
+      stopProgressPolling()
       
-      // For background processing, we don't get real-time status
-      if (options.backgroundProcessing) {
-        setProcessing(false)
-        setProgress(null)
-        
-        if (options.enableAutomaticVisibilityAnalysis) {
-          toast.success('Background processing with visibility analysis started! Results will be saved when complete.')
-        } else {
-          toast.success('Background processing started! Results will be saved when complete.')
-        }
-        return
+      // Try to cancel processing on backend if endpoint exists
+      try {
+        await apiService.bulkProcessor.cancelProcessing?.(processingId)
+        toast.success('Processing cancelled successfully')
+      } catch (cancelError) {
+        console.log('Cancel endpoint not available, just stopping local tracking')
+        toast.info('Stopped tracking processing progress')
       }
       
-      setProgress(response)
-
-      if (response.status === 'completed') {
-        setProcessing(false)
-        setResults(response.results)
-        
-        // Show completion message with visibility analysis info
-        if (response.results?.visibilityAnalysisResults) {
-          const visResults = response.results.visibilityAnalysisResults
-          toast.success(
-            `Processing completed! Found ${visResults.totalSharpTurns} sharp turns and ${visResults.totalBlindSpots} blind spots.`
-          )
-        } else {
-          toast.success('Processing completed successfully!')
-        }
-      } else if (response.status === 'failed') {
-        setProcessing(false)
-        toast.error('Processing failed')
-      } else {
-        // Continue polling for foreground processing
-        setTimeout(pollProgress, 2000)
-      }
+      // Reset local state
+      setProcessing(false)
+      setProgress(null)
+      setProcessingId(null)
+      clearProcessingState()
+      
     } catch (error) {
-      console.error('Status poll error:', error)
-      setTimeout(pollProgress, 5000) // Retry after 5 seconds
+      console.error('Error stopping processing:', error)
+      
+      // Force reset even if cancel fails
+      stopProgressPolling()
+      setProcessing(false)
+      setProgress(null)
+      setProcessingId(null)
+      clearProcessingState()
+      
+      toast.info('Processing tracking stopped')
     }
-  }
-
-  const handleStopProcessing = () => {
-    setProcessing(false)
-    setProgress(null)
-    toast.success('Processing stopped')
   }
 
   const handleDownloadTemplate = () => {
@@ -195,34 +447,37 @@ const BulkProcessor = () => {
 
   const handleDownloadResults = () => {
     if (results) {
-      const csvData = results.routes.map(route => ({
+      const csvData = results.routes?.map(route => ({
         routeName: route.routeName,
         totalDistance: route.totalDistance,
         riskScore: route.riskScore,
         riskLevel: route.riskLevel,
         status: route.status,
-        // NEW: Add visibility analysis data to export
         sharpTurns: route.visibilityData?.sharpTurns || 0,
         blindSpots: route.visibilityData?.blindSpots || 0,
         criticalTurns: route.visibilityData?.criticalTurns || 0,
         criticalBlindSpots: route.visibilityData?.criticalBlindSpots || 0,
         visibilityAnalyzed: route.visibilityAnalysisSuccessful || false
-      }))
+      })) || []
 
-      const headers = Object.keys(csvData[0]).join(',')
-      const rows = csvData.map(row => Object.values(row).join(','))
-      const csv = [headers, ...rows].join('\n')
+      if (csvData.length > 0) {
+        const headers = Object.keys(csvData[0]).join(',')
+        const rows = csvData.map(row => Object.values(row).join(','))
+        const csv = [headers, ...rows].join('\n')
 
-      const blob = new Blob([csv], { type: 'text/csv' })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `processing_results_with_visibility_${Date.now()}.csv`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-      toast.success('Results with visibility analysis downloaded!')
+        const blob = new Blob([csv], { type: 'text/csv' })
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `processing_results_with_visibility_${Date.now()}.csv`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+        toast.success('Results with visibility analysis downloaded!')
+      } else {
+        toast.error('No results available to download')
+      }
     }
   }
 
@@ -230,7 +485,7 @@ const BulkProcessor = () => {
     window.open(`/routes/${routeId}`, '_blank')
   }
 
-  // Processing mode options with new visibility analysis mode
+  // Processing mode options
   const processingModes = [
     { 
       value: 'basic', 
@@ -256,34 +511,74 @@ const BulkProcessor = () => {
     }
   ]
 
-  const visibilityAnalysisModes = [
-    { value: 'basic', label: 'Basic Analysis', description: 'Standard sharp turn and blind spot detection' },
-    { value: 'comprehensive', label: 'Comprehensive Analysis', description: 'Advanced analysis with elevation and curve data' },
-    { value: 'detailed', label: 'Detailed Analysis', description: 'Complete analysis with obstruction and intersection data' }
-  ]
-
-  const dataCollectionModes = [
-    { value: 'basic', label: 'Basic Collection', description: 'Essential data only' },
-    { value: 'comprehensive', label: 'Comprehensive Collection', description: 'Most safety data (recommended)' },
-    { value: 'complete', label: 'Complete Collection', description: 'All available data (slower)' }
-  ]
-
   return (
     <div className="space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Enhanced Bulk Route Processor</h1>
-          <p className="text-gray-600">Upload and process multiple routes with comprehensive risk analysis and automatic visibility detection</p>
+          <p className="text-gray-600">
+            Upload and process multiple routes with comprehensive risk analysis and real-time progress tracking
+          </p>
         </div>
-        <Button
-          variant="outline"
-          icon={Download}
-          onClick={handleDownloadTemplate}
-        >
-          Download Template
-        </Button>
+        <div className="flex space-x-3">
+          <Button
+            variant="outline"
+            icon={Download}
+            onClick={handleDownloadTemplate}
+          >
+            Download Template
+          </Button>
+          {processing && (
+            <Button
+              variant="outline"
+              icon={RefreshCw}
+              onClick={() => {
+                stopProgressPolling()
+                startProgressPolling()
+              }}
+            >
+              Refresh Status
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Processing Status Indicator */}
+      {processing && (
+        <Card className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+                <span className="text-blue-800 font-medium">
+                  Live Processing Active
+                </span>
+              </div>
+              {progress && (
+                <Badge variant="primary" className="flex items-center space-x-1">
+                  <Activity className="w-3 h-3" />
+                  <span>{progress.completedRoutes}/{progress.totalRoutes}</span>
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-blue-700">
+                Session ID: {processingId?.slice(-8) || 'N/A'}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                icon={X}
+                onClick={handleStopProcessing}
+                className="text-red-600 hover:text-red-700"
+              >
+                Stop Tracking
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Processing Mode Selection */}
       <Card className="p-6">
@@ -296,8 +591,8 @@ const BulkProcessor = () => {
                 options.mode === mode.value
                   ? 'border-blue-500 bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300'
-              }`}
-              onClick={() => setOptions(prev => ({ ...prev, mode: mode.value }))}
+              } ${processing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={() => !processing && setOptions(prev => ({ ...prev, mode: mode.value }))}
             >
               {mode.recommended && (
                 <div className="absolute -top-2 -right-2">
@@ -334,171 +629,54 @@ const BulkProcessor = () => {
               onFileSelect={handleFileSelect}
               selectedFile={selectedFile}
               onRemoveFile={handleRemoveFile}
+              disabled={processing}
             />
           </Card>
 
           {/* Enhanced Processing Options */}
-          <Card className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-              <Activity className="w-5 h-5 mr-2" />
-              Processing Configuration
-            </h3>
-            
-            <div className="space-y-6">
-              {/* Concurrent Routes */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Concurrent Routes
-                </label>
-                <Select
-                  options={[
-                    { value: 1, label: '1 Route (Safest)' },
-                    { value: 2, label: '2 Routes (Recommended for Visibility)' },
-                    { value: 3, label: '3 Routes' },
-                    { value: 4, label: '4 Routes' },
-                    { value: 5, label: '5 Routes (Fastest)' }
-                  ]}
-                  value={options.concurrentRoutes}
-                  onChange={(e) => setOptions(prev => ({ ...prev, concurrentRoutes: parseInt(e.target.value) }))}
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  {options.enableAutomaticVisibilityAnalysis 
-                    ? 'Lower values recommended for visibility analysis to avoid API rate limits'
-                    : 'Number of routes to process simultaneously'
-                  }
-                </p>
-              </div>
-
-              {/* Data Collection Mode */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Data Collection Intensity
-                </label>
-                <Select
-                  options={dataCollectionModes}
-                  value={options.dataCollectionMode}
-                  onChange={(e) => setOptions(prev => ({ ...prev, dataCollectionMode: e.target.value }))}
-                />
-              </div>
-
-              {/* Background Processing */}
-              <Toggle
-                checked={options.backgroundProcessing}
-                onChange={(value) => setOptions(prev => ({ ...prev, backgroundProcessing: value }))}
-                label="Background Processing"
-                description="Continue processing in the background for large batches"
-              />
-            </div>
-          </Card>
-
-          {/* NEW: Automatic Visibility Analysis Options */}
-          {(options.mode === 'enhanced' || options.mode === 'enhancedWithVisibility') && (
-            <Card className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <Eye className="w-5 h-5 mr-2 text-blue-600" />
-                Automatic Visibility Analysis
-                <Badge variant="primary" className="ml-2 text-xs">NEW</Badge>
-              </h3>
-              
-              <div className="space-y-4">
-                <Toggle
-                  checked={options.enableAutomaticVisibilityAnalysis}
-                  onChange={(value) => setOptions(prev => ({ 
-                    ...prev, 
-                    enableAutomaticVisibilityAnalysis: value,
-                    mode: value ? 'enhancedWithVisibility' : 'enhanced'
-                  }))}
-                  label="Enable Automatic Visibility Analysis"
-                  description="Automatically detect sharp turns and blind spots for each route"
-                />
-
-                {options.enableAutomaticVisibilityAnalysis && (
-                  <div className="space-y-4 pl-6 border-l-2 border-blue-200">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Analysis Mode
-                      </label>
-                      <Select
-                        options={visibilityAnalysisModes}
-                        value={options.visibilityAnalysisMode}
-                        onChange={(e) => setOptions(prev => ({ ...prev, visibilityAnalysisMode: e.target.value }))}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Analysis Timeout (per route)
-                      </label>
-                      <Select
-                        options={[
-                          { value: 60000, label: '1 minute (Fast)' },
-                          { value: 120000, label: '2 minutes (Balanced)' },
-                          { value: 180000, label: '3 minutes (Thorough)' },
-                          { value: 300000, label: '5 minutes (Maximum)' }
-                        ]}
-                        value={options.visibilityAnalysisTimeout}
-                        onChange={(e) => setOptions(prev => ({ ...prev, visibilityAnalysisTimeout: parseInt(e.target.value) }))}
-                      />
-                    </div>
-
-                    <Toggle
-                      checked={options.continueOnVisibilityFailure}
-                      onChange={(value) => setOptions(prev => ({ ...prev, continueOnVisibilityFailure: value }))}
-                      label="Continue on Visibility Analysis Failure"
-                      description="Don't fail entire batch if visibility analysis fails for some routes"
-                    />
-
-                    <div className="bg-blue-100 p-3 rounded-lg">
-                      <div className="flex items-start space-x-2">
-                        <Zap className="w-4 h-4 text-blue-600 mt-0.5" />
-                        <div className="text-sm text-blue-800">
-                          <p className="font-medium">Automatic Detection Features:</p>
-                          <ul className="list-disc list-inside mt-1 space-y-1">
-                            <li>Sharp turn angle analysis</li>
-                            <li>Blind spot visibility detection</li>
-                            <li>Critical risk identification</li>
-                            <li>Real-time processing per route</li>
-                          </ul>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Card>
-          )}
-
-          {/* Enhanced Data Collection Options */}
           <ProcessingOptions
             options={options}
             onUpdateOptions={setOptions}
+            disabled={processing}
           />
 
           {/* Start Processing Button */}
           <Card className="p-6">
-            <Button
-              variant="primary"
-              size="lg"
-              icon={options.enableAutomaticVisibilityAnalysis ? Eye : Play}
-              onClick={handleStartProcessing}
-              disabled={!selectedFile || processing}
-              loading={processing}
-              className="w-full"
-            >
-              {processing 
-                ? options.enableAutomaticVisibilityAnalysis 
-                  ? 'Processing with Visibility Analysis...' 
-                  : 'Processing...'
-                : options.enableAutomaticVisibilityAnalysis
+            {!processing ? (
+              <Button
+                variant="primary"
+                size="lg"
+                icon={options.enableAutomaticVisibilityAnalysis ? Eye : Play}
+                onClick={handleStartProcessing}
+                disabled={!selectedFile}
+                className="w-full"
+              >
+                {options.enableAutomaticVisibilityAnalysis
                   ? 'Start Enhanced Processing + Visibility Analysis'
                   : 'Start Enhanced Processing'
-              }
-            </Button>
+                }
+              </Button>
+            ) : (
+              <div className="space-y-3">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  icon={Pause}
+                  onClick={handleStopProcessing}
+                  className="w-full text-red-600 hover:text-red-700 border-red-300 hover:border-red-400"
+                >
+                  Stop Processing
+                </Button>
+                <p className="text-center text-sm text-gray-600">
+                  Processing will continue even if you close this page
+                </p>
+              </div>
+            )}
             
-            {options.enableAutomaticVisibilityAnalysis && (
+            {options.enableAutomaticVisibilityAnalysis && !processing && (
               <div className="mt-3 text-center">
                 <p className="text-sm text-gray-600">
-                  Estimated time: {Math.ceil(((selectedFile?.size || 0) / 1024 / 10) * 4)} minutes
+                  Estimated time: {selectedFile ? Math.ceil(((selectedFile.size || 0) / 1024 / 10) * 4) : 0} minutes
                   <span className="text-blue-600 ml-1">(includes visibility analysis)</span>
                 </p>
               </div>
@@ -509,97 +687,19 @@ const BulkProcessor = () => {
         {/* Right Column - Progress & Results */}
         <div className="space-y-6">
           {progress && (
-            <div className="space-y-4">
-              <ProcessingProgress
-                progress={progress}
-                onStop={handleStopProcessing}
-              />
-              
-              {/* NEW: Visibility Analysis Progress */}
-              {progress.visibilityAnalysis && options.enableAutomaticVisibilityAnalysis && (
-                <Card className="p-4 bg-blue-50 border-blue-200">
-                  <h4 className="font-medium text-blue-900 mb-3 flex items-center">
-                    <Eye className="w-4 h-4 mr-2" />
-                    Visibility Analysis Progress
-                  </h4>
-                  <div className="grid grid-cols-3 gap-4 text-center">
-                    <div>
-                      <p className="text-lg font-bold text-blue-600">{progress.visibilityAnalysis.attempted}</p>
-                      <p className="text-xs text-blue-700">Attempted</p>
-                    </div>
-                    <div>
-                      <p className="text-lg font-bold text-green-600">{progress.visibilityAnalysis.successful}</p>
-                      <p className="text-xs text-green-700">Successful</p>
-                    </div>
-                    <div>
-                      <p className="text-lg font-bold text-red-600">{progress.visibilityAnalysis.failed}</p>
-                      <p className="text-xs text-red-700">Failed</p>
-                    </div>
-                  </div>
-                  {progress.visibilityAnalysis.currentRoute && (
-                    <div className="mt-3 text-center">
-                      <p className="text-sm text-blue-700">
-                        Currently analyzing: {progress.visibilityAnalysis.currentRoute}
-                      </p>
-                    </div>
-                  )}
-                </Card>
-              )}
-            </div>
+            <ProcessingProgress
+              progress={progress}
+              onStop={handleStopProcessing}
+              processingId={processingId}
+            />
           )}
 
           {results && (
-            <div className="space-y-4">
-              <ResultsViewer
-                results={results}
-                onDownload={handleDownloadResults}
-                onViewDetails={handleViewDetails}
-              />
-              
-              {/* NEW: Visibility Analysis Results Summary */}
-              {results.visibilityAnalysisResults && (
-                <Card className="p-6 bg-gradient-to-r from-green-50 to-blue-50 border-green-200">
-                  <h4 className="font-semibold text-gray-900 mb-4 flex items-center">
-                    <Eye className="w-5 h-5 mr-2 text-green-600" />
-                    Visibility Analysis Results
-                  </h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-green-600">
-                        {results.visibilityAnalysisResults.routesAnalyzed}
-                      </p>
-                      <p className="text-sm text-gray-600">Routes Analyzed</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-orange-600">
-                        {results.visibilityAnalysisResults.totalSharpTurns}
-                      </p>
-                      <p className="text-sm text-gray-600">Sharp Turns</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-red-600">
-                        {results.visibilityAnalysisResults.totalBlindSpots}
-                      </p>
-                      <p className="text-sm text-gray-600">Blind Spots</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-purple-600">
-                        {results.visibilityAnalysisResults.criticalTurns + results.visibilityAnalysisResults.criticalBlindSpots}
-                      </p>
-                      <p className="text-sm text-gray-600">Critical Issues</p>
-                    </div>
-                  </div>
-                  <div className="mt-4 text-center">
-                    <Badge variant="success" className="mr-2">
-                      {results.visibilityAnalysisResults.successRate}% Success Rate
-                    </Badge>
-                    <Badge variant="primary">
-                      Mode: {results.visibilityAnalysisResults.analysisMode}
-                    </Badge>
-                  </div>
-                </Card>
-              )}
-            </div>
+            <ResultsViewer
+              results={results}
+              onDownload={handleDownloadResults}
+              onViewDetails={handleViewDetails}
+            />
           )}
 
           {!progress && !results && (
@@ -613,13 +713,13 @@ const BulkProcessor = () => {
               </div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">
                 {options.enableAutomaticVisibilityAnalysis 
-                  ? 'Ready for Enhanced Processing with Visibility Analysis'
+                  ? 'Ready for Enhanced Processing with Real-time Tracking'
                   : 'Ready to Process'
                 }
               </h3>
               <p className="text-gray-500">
                 {options.enableAutomaticVisibilityAnalysis
-                  ? 'Upload a CSV file and configure your options to start comprehensive route analysis with automatic sharp turn and blind spot detection'
+                  ? 'Upload a CSV file and start processing. Progress will be tracked in real-time and persisted across page refreshes.'
                   : 'Upload a CSV file and configure your processing options to get started'
                 }
               </p>
@@ -628,27 +728,36 @@ const BulkProcessor = () => {
         </div>
       </div>
 
-      {/* Status and Help Information */}
-      <Card className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+      {/* Enhanced Status Footer */}
+      <Card className="p-4 bg-gradient-to-r from-green-50 to-blue-50 border-green-200">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-            <p className="text-sm text-blue-800 font-medium">
-              Enhanced Bulk Processor with Automatic Visibility Analysis
+          <div className="flex items-center space-x-3">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <p className="text-sm text-green-800 font-medium">
+              Enhanced Bulk Processor with Real-time Progress Tracking
             </p>
           </div>
           <div className="flex items-center space-x-4">
             {options.enableAutomaticVisibilityAnalysis && (
               <div className="flex items-center space-x-1">
                 <Eye className="w-4 h-4 text-blue-600" />
-                <span className="text-sm text-blue-700">Auto-Visibility Enabled</span>
+                <span className="text-sm text-blue-700">Auto-Visibility</span>
               </div>
             )}
-            <Badge variant="primary" size="sm">
+            <div className="flex items-center space-x-1">
+              <Activity className="w-4 h-4 text-green-600" />
+              <span className="text-sm text-green-700">Real-time Tracking</span>
+            </div>
+            <Badge variant="success" size="sm">
               API Connected
             </Badge>
           </div>
         </div>
+        {processing && (
+          <div className="mt-2 text-xs text-green-700">
+            Progress persisted - you can safely refresh the page or navigate away
+          </div>
+        )}
       </Card>
     </div>
   )

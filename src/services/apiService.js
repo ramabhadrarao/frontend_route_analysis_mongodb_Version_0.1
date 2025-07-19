@@ -1,3 +1,4 @@
+// Enhanced API Service with real-time status tracking
 import { api } from './authService'
 import { config } from '../config/config'
 
@@ -131,7 +132,7 @@ export const apiService = {
     }
   },
 
-  // Bulk Processing APIs
+  // Enhanced Bulk Processing APIs with Real-time Status
   bulkProcessor: {
     async processCSV(formData) {
       const response = await api.post('/api/bulk-routes/process-csv', formData, {
@@ -161,14 +162,159 @@ export const apiService = {
       return response.data
     },
 
+    // Enhanced status polling with detailed progress tracking
     async getStatus() {
-      const response = await api.get('/api/bulk-routes/status')
-      return response.data
+      try {
+        const response = await api.get('/api/bulk-routes/status')
+        console.log('API Status Response:', response.data)
+        
+        // Handle different response formats from your backend
+        if (response.data.success !== false) {
+          // Transform backend response to match frontend expectations
+          return {
+            status: response.data.status || 'processing',
+            currentRoute: response.data.currentRoute || response.data.message || 'Processing...',
+            totalRoutes: response.data.totalRoutes || response.data.data?.totalRoutes || 0,
+            completedRoutes: response.data.completedRoutes || response.data.data?.successful?.length || 0,
+            failedRoutes: response.data.failedRoutes || response.data.data?.failed?.length || 0,
+            estimatedTimeRemaining: response.data.estimatedTimeRemaining || 'Calculating...',
+            
+            // Enhanced data collection progress
+            enhancedDataCollection: {
+              attempted: response.data.enhancedDataCollection?.attempted || 0,
+              successful: response.data.enhancedDataCollection?.successful || 0,
+              failed: response.data.enhancedDataCollection?.failed || 0,
+              sharpTurnsCollected: response.data.enhancedDataCollection?.sharpTurnsCollected || 0,
+              blindSpotsCollected: response.data.enhancedDataCollection?.blindSpotsCollected || 0,
+              networkCoverageAnalyzed: response.data.enhancedDataCollection?.networkCoverageAnalyzed || 0,
+              roadConditionsAnalyzed: response.data.enhancedDataCollection?.roadConditionsAnalyzed || 0,
+              accidentDataCollected: response.data.enhancedDataCollection?.accidentDataCollected || 0,
+              seasonalWeatherCollected: response.data.enhancedDataCollection?.seasonalWeatherCollected || 0,
+              totalRecordsCreated: response.data.enhancedDataCollection?.totalRecordsCreated || 0,
+              collectionBreakdown: response.data.enhancedDataCollection?.collectionBreakdown || {}
+            },
+            
+            // Visibility analysis progress  
+            visibilityAnalysis: {
+              attempted: response.data.visibilityAnalysis?.attempted || 0,
+              successful: response.data.visibilityAnalysis?.successful || 0,
+              failed: response.data.visibilityAnalysis?.failed || 0,
+              skipped: response.data.visibilityAnalysis?.skipped || 0,
+              currentRoute: response.data.visibilityAnalysis?.currentRoute || null,
+              totalSharpTurns: response.data.visibilityAnalysis?.totalSharpTurns || 0,
+              totalBlindSpots: response.data.visibilityAnalysis?.totalBlindSpots || 0,
+              criticalTurns: response.data.visibilityAnalysis?.criticalTurns || 0,
+              criticalBlindSpots: response.data.visibilityAnalysis?.criticalBlindSpots || 0,
+              analysisMode: response.data.visibilityAnalysis?.analysisMode || 'comprehensive',
+              averageAnalysisTime: response.data.visibilityAnalysis?.averageAnalysisTime || null
+            },
+            
+            // Processing metadata
+            processingMode: response.data.processingMode || 'enhanced',
+            dataCollectionMode: response.data.dataCollectionMode || 'comprehensive',
+            backgroundProcessing: response.data.backgroundProcessing || false,
+            
+            // Results if completed
+            results: response.data.results || response.data.data || null
+          }
+        } else {
+          // No active processing or error
+          throw new Error(response.data.message || 'No active processing found')
+        }
+      } catch (error) {
+        console.error('Status polling error:', error)
+        
+        // Handle specific error cases
+        if (error.response?.status === 404) {
+          // No active processing
+          return {
+            status: 'completed',
+            message: 'No active processing found'
+          }
+        } else if (error.response?.status >= 500) {
+          // Server error
+          throw new Error('Server error while checking status')
+        } else {
+          // Other errors
+          throw error
+        }
+      }
+    },
+
+    // Real-time progress streaming (if supported by backend)
+    async subscribeToProgress(callback) {
+      // This would use WebSockets or Server-Sent Events if available
+      // For now, we'll implement with polling
+      let intervalId
+      
+      const poll = async () => {
+        try {
+          const status = await this.getStatus()
+          callback(status)
+          
+          // Stop polling if processing is complete
+          if (['completed', 'failed', 'cancelled'].includes(status.status)) {
+            if (intervalId) {
+              clearInterval(intervalId)
+            }
+          }
+        } catch (error) {
+          callback({ error: error.message })
+          
+          // Stop polling on persistent errors
+          if (error.message.includes('No active processing')) {
+            if (intervalId) {
+              clearInterval(intervalId)
+            }
+          }
+        }
+      }
+      
+      // Start immediate poll
+      await poll()
+      
+      // Continue polling every 2 seconds
+      intervalId = setInterval(poll, 2000)
+      
+      // Return unsubscribe function
+      return () => {
+        if (intervalId) {
+          clearInterval(intervalId)
+        }
+      }
+    },
+
+    // Cancel processing (if supported by backend)
+    async cancelProcessing(processingId) {
+      try {
+        const response = await api.post('/api/bulk-routes/cancel', { processingId })
+        return response.data
+      } catch (error) {
+        // If cancel endpoint doesn't exist, that's okay
+        if (error.response?.status === 404) {
+          console.log('Cancel endpoint not available')
+          return { success: true, message: 'Cancel endpoint not available' }
+        }
+        throw error
+      }
     },
 
     async getResults(filename) {
       const response = await api.get(`/api/bulk-routes/results/${filename}`)
       return response.data
+    },
+
+    // Background job status (alternative polling method)
+    async getBackgroundStatus(jobId) {
+      try {
+        const response = await api.get(`/api/bulk-routes/background-status/${jobId}`)
+        return response.data
+      } catch (error) {
+        if (error.response?.status === 404) {
+          return { status: 'completed', message: 'Job not found or completed' }
+        }
+        throw error
+      }
     }
   },
 
