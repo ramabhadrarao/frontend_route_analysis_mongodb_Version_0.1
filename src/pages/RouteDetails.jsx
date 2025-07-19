@@ -182,6 +182,20 @@ const RouteDetails = () => {
       return []
     }
     
+    // NEW: Check for direct array properties at root level (your current API structure)
+    const directArrayKeys = [
+      'accidentAreas', 'roadConditions', 'emergencyServices', 'services',
+      'gpsPoints', 'sharpTurns', 'blindSpots', 'networkCoverage',
+      'weatherData', 'trafficData', 'weatherPoints', 'trafficPoints'
+    ]
+    
+    for (const key of directArrayKeys) {
+      if (apiResponse[key] && Array.isArray(apiResponse[key])) {
+        console.log(`✅ Found direct ${key} array:`, apiResponse[key].length, 'items')
+        return apiResponse[key]
+      }
+    }
+    
     // Handle your specific API structure: { success: true, data: { specificArray: [...] } }
     if (apiResponse.success && apiResponse.data) {
       const dataObj = apiResponse.data

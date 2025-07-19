@@ -58,33 +58,57 @@ const GoogleMapComponent = ({
   const directionsRendererRef = useRef(null)
   const placesServiceRef = useRef(null)
 
-  // Helper function to safely extract coordinates
+  // Enhanced coordinate extraction with better error handling
   const getCoordinates = (item) => {
-    // Handle different coordinate formats from API
-    if (item.latitude !== undefined && item.longitude !== undefined) {
-      return { lat: item.latitude, lng: item.longitude }
+    try {
+      // Handle different coordinate formats from API
+      if (item.latitude !== undefined && item.longitude !== undefined) {
+        return { lat: parseFloat(item.latitude), lng: parseFloat(item.longitude) }
+      }
+      if (item.coordinates) {
+        if (item.coordinates.latitude !== undefined && item.coordinates.longitude !== undefined) {
+          return { lat: parseFloat(item.coordinates.latitude), lng: parseFloat(item.coordinates.longitude) }
+        }
+        if (item.coordinates.lat !== undefined && item.coordinates.lng !== undefined) {
+          return { lat: parseFloat(item.coordinates.lat), lng: parseFloat(item.coordinates.lng) }
+        }
+        // Handle array format [lng, lat] (GeoJSON format)
+        if (Array.isArray(item.coordinates) && item.coordinates.length >= 2) {
+          return { lat: parseFloat(item.coordinates[1]), lng: parseFloat(item.coordinates[0]) }
+        }
+      }
+      if (item.lat !== undefined && item.lng !== undefined) {
+        return { lat: parseFloat(item.lat), lng: parseFloat(item.lng) }
+      }
+      // Handle nested coordinate objects
+      if (item.location) {
+        if (item.location.latitude !== undefined && item.location.longitude !== undefined) {
+          return { lat: parseFloat(item.location.latitude), lng: parseFloat(item.location.longitude) }
+        }
+        if (item.location.lat !== undefined && item.location.lng !== undefined) {
+          return { lat: parseFloat(item.location.lat), lng: parseFloat(item.location.lng) }
+        }
+      }
+      if (item.position && item.position.lat !== undefined && item.position.lng !== undefined) {
+        return { lat: parseFloat(item.position.lat), lng: parseFloat(item.position.lng) }
+      }
+      
+      console.warn('Unable to extract coordinates from:', item)
+      return null
+    } catch (error) {
+      console.error('Error extracting coordinates:', error, item)
+      return null
     }
-    if (item.coordinates && item.coordinates.latitude !== undefined && item.coordinates.longitude !== undefined) {
-      return { lat: item.coordinates.latitude, lng: item.coordinates.longitude }
-    }
-    if (item.lat !== undefined && item.lng !== undefined) {
-      return { lat: item.lat, lng: item.lng }
-    }
-    // Handle nested coordinate objects
-    if (item.location && item.location.latitude !== undefined && item.location.longitude !== undefined) {
-      return { lat: item.location.latitude, lng: item.location.longitude }
-    }
-    if (item.position && item.position.lat !== undefined && item.position.lng !== undefined) {
-      return { lat: item.position.lat, lng: item.position.lng }
-    }
-    return null
   }
 
   // Enhanced data extraction function for different API response formats
   const extractArrayData = (apiResponse) => {
     console.log('🔍 RouteMap extracting data from:', apiResponse)
     
-    if (!apiResponse) return []
+    if (!apiResponse) {
+      console.warn('❌ No API response provided')
+      return []
+    }
     
     // If it's already an array, return as-is
     if (Array.isArray(apiResponse)) {
@@ -92,7 +116,7 @@ const GoogleMapComponent = ({
       return apiResponse
     }
     
-    // Handle your specific API response structure: { success: true, data: { sharpTurns: [...] } }
+    // Handle success wrapper with nested data
     if (apiResponse.success && apiResponse.data) {
       const dataObj = apiResponse.data
       console.log('🎯 Found success wrapper, data object keys:', Object.keys(dataObj))
@@ -104,49 +128,18 @@ const GoogleMapComponent = ({
       }
       
       // Extract specific arrays based on your API structure
-      if (dataObj.sharpTurns && Array.isArray(dataObj.sharpTurns)) {
-        console.log('✅ Extracted sharpTurns:', dataObj.sharpTurns.length, 'items')
-        return dataObj.sharpTurns
-      }
+      const dataKeys = [
+        'roadConditions', 'sharpTurns', 'blindSpots', 'emergencyServices',
+        'gpsPoints', 'weatherPoints', 'trafficPoints', 'accidentAreas',
+        'networkCoverage', 'weatherData', 'trafficData', 'conditions', 
+        'points', 'areas', 'services'
+      ]
       
-      if (dataObj.blindSpots && Array.isArray(dataObj.blindSpots)) {
-        console.log('✅ Extracted blindSpots:', dataObj.blindSpots.length, 'items')
-        return dataObj.blindSpots
-      }
-      
-      if (dataObj.emergencyServices && Array.isArray(dataObj.emergencyServices)) {
-        console.log('✅ Extracted emergencyServices:', dataObj.emergencyServices.length, 'items')
-        return dataObj.emergencyServices
-      }
-      
-      if (dataObj.gpsPoints && Array.isArray(dataObj.gpsPoints)) {
-        console.log('✅ Extracted gpsPoints:', dataObj.gpsPoints.length, 'items')
-        return dataObj.gpsPoints
-      }
-      
-      if (dataObj.weatherData && Array.isArray(dataObj.weatherData)) {
-        console.log('✅ Extracted weatherData:', dataObj.weatherData.length, 'items')
-        return dataObj.weatherData
-      }
-      
-      if (dataObj.trafficData && Array.isArray(dataObj.trafficData)) {
-        console.log('✅ Extracted trafficData:', dataObj.trafficData.length, 'items')
-        return dataObj.trafficData
-      }
-      
-      if (dataObj.accidentAreas && Array.isArray(dataObj.accidentAreas)) {
-        console.log('✅ Extracted accidentAreas:', dataObj.accidentAreas.length, 'items')
-        return dataObj.accidentAreas
-      }
-      
-      if (dataObj.roadConditions && Array.isArray(dataObj.roadConditions)) {
-        console.log('✅ Extracted roadConditions:', dataObj.roadConditions.length, 'items')
-        return dataObj.roadConditions
-      }
-      
-      if (dataObj.networkCoverage && Array.isArray(dataObj.networkCoverage)) {
-        console.log('✅ Extracted networkCoverage:', dataObj.networkCoverage.length, 'items')
-        return dataObj.networkCoverage
+      for (const key of dataKeys) {
+        if (dataObj[key] && Array.isArray(dataObj[key])) {
+          console.log(`✅ Extracted ${key}:`, dataObj[key].length, 'items')
+          return dataObj[key]
+        }
       }
       
       // Generic fallbacks
@@ -165,12 +158,19 @@ const GoogleMapComponent = ({
         console.log('✅ Single item with coordinates')
         return [dataObj]
       }
-      
-      console.log('📋 Available properties in data:', Object.keys(dataObj))
+    }
+    
+    // Handle API error responses
+    if (apiResponse.success === false) {
+      console.warn('❌ API returned success: false', apiResponse.message || apiResponse.error)
+      return []
     }
     
     // Handle direct response arrays (fallback)
-    const directProps = ['sharpTurns', 'blindSpots', 'emergencyServices', 'gpsPoints', 'weatherData', 'trafficData', 'accidentAreas', 'roadConditions', 'networkCoverage']
+    const directProps = [
+      'roadConditions', 'sharpTurns', 'blindSpots', 'emergencyServices',
+      'gpsPoints', 'weatherData', 'trafficData', 'accidentAreas', 'networkCoverage'
+    ]
     
     for (const prop of directProps) {
       if (apiResponse[prop] && Array.isArray(apiResponse[prop])) {
@@ -185,7 +185,17 @@ const GoogleMapComponent = ({
       return [apiResponse]
     }
     
-    console.warn('❌ No array data found, available keys:', Object.keys(apiResponse))
+    // Final fallback: check for any array in the response
+    if (typeof apiResponse === 'object' && apiResponse !== null) {
+      const values = Object.values(apiResponse)
+      const arrayValue = values.find(val => Array.isArray(val))
+      if (arrayValue) {
+        console.log('✅ Found array in object values:', arrayValue.length, 'items')
+        return arrayValue
+      }
+    }
+    
+    console.warn('❌ No array data found, available keys:', Object.keys(apiResponse || {}))
     return []
   }
 
@@ -703,6 +713,51 @@ const GoogleMapComponent = ({
     }
   }, [calculateRouteBounds])
 
+  // Enhanced update markers function for road conditions
+  const updateRoadConditionMarkers = (roadConditions, visibleLayers, googleMapRef, infoWindowRef, markersRef) => {
+    console.log('Updating road condition markers:', roadConditions?.length || 0, 'conditions')
+    console.log('Road conditions visible:', visibleLayers?.roadConditions)
+    console.log('Sample road condition:', roadConditions?.[0])
+
+    if (!visibleLayers?.roadConditions || !roadConditions || !Array.isArray(roadConditions)) {
+      console.log('Skipping road conditions - not visible or no data')
+      return
+    }
+
+    const validConditions = roadConditions.filter(condition => {
+      const coords = getCoordinates(condition)
+      const isValid = isValidCoordinate(coords)
+      if (!isValid) {
+        console.warn('Invalid road condition coordinates:', condition)
+      }
+      return isValid
+    })
+
+    console.log(`Creating ${validConditions.length} road condition markers`)
+
+    validConditions.forEach((condition, index) => {
+      try {
+        const coords = getCoordinates(condition)
+        const content = `
+          <div>
+            <p><strong>Surface Quality:</strong> ${condition.surfaceQuality}</p>
+            <p><strong>Road Type:</strong> ${condition.roadType}</p>
+            <p><strong>Condition:</strong> ${condition.condition}</p>
+            <p><strong>Width:</strong> ${condition.width}m</p>
+            <p><strong>Lanes:</strong> ${condition.lanes}</p>
+            <p><strong>Risk Score:</strong> <span style="color: ${condition.riskScore >= 7 ? '#ef4444' : condition.riskScore >= 5 ? '#f59e0b' : '#22c55e'}">${condition.riskScore}</span></p>
+            ${condition.description ? `<p><strong>Description:</strong> ${condition.description}</p>` : ''}
+          </div>
+        `
+        createEnhancedMarker(coords, `Road Condition ${index + 1}`, content, MARKER_COLORS[LAYER_TYPES.ROAD_CONDITIONS], '🛣', 'Road Condition')
+      } catch (error) {
+        console.error(`Error creating road condition marker ${index}:`, error)
+      }
+    })
+
+    console.log(`✅ Successfully created ${validConditions.length} road condition markers`)
+  }
+
   // Update markers based on visible layers
   const updateMarkers = useCallback(() => {
     if (!googleMapRef.current) return
@@ -800,25 +855,9 @@ const GoogleMapComponent = ({
       })
     }
 
-    // Road Conditions
+    // Road Conditions - Using enhanced function
     if (visibleLayers[LAYER_TYPES.ROAD_CONDITIONS]) {
-      getValidItems(roadConditions).forEach((condition, index) => {
-        const coords = getCoordinates(condition)
-        if (isValidCoordinate(coords)) {
-          const content = `
-            <div>
-              <p><strong>Surface Quality:</strong> ${condition.surfaceQuality}</p>
-              <p><strong>Road Type:</strong> ${condition.roadType}</p>
-              <p><strong>Condition:</strong> ${condition.condition}</p>
-              <p><strong>Width:</strong> ${condition.width}m</p>
-              <p><strong>Lanes:</strong> ${condition.lanes}</p>
-              <p><strong>Risk Score:</strong> <span style="color: ${condition.riskScore >= 7 ? '#ef4444' : condition.riskScore >= 5 ? '#f59e0b' : '#22c55e'}">${condition.riskScore}</span></p>
-              ${condition.description ? `<p><strong>Description:</strong> ${condition.description}</p>` : ''}
-            </div>
-          `
-          createEnhancedMarker(coords, `Road Condition ${index + 1}`, content, MARKER_COLORS[LAYER_TYPES.ROAD_CONDITIONS], '🛣', 'Road Condition')
-        }
-      })
+      updateRoadConditionMarkers(roadConditions, visibleLayers, googleMapRef.current, infoWindowRef.current, markersRef)
     }
 
     // Network Coverage Dead Zones
