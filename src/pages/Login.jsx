@@ -10,7 +10,7 @@ import Input from '../components/UI/Input'
 import Card from '../components/UI/Card'
 
 const schema = yup.object({
-  username: yup.string().required('Username is required'),
+  email: yup.string().email('Please enter a valid email').required('Email is required'),
   password: yup.string().required('Password is required')
 })
 
@@ -57,11 +57,11 @@ const Login = () => {
         <Card className="mt-8">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <Input
-              label="Username"
-              type="text"
-              autoComplete="username"
-              {...register('username')}
-              error={errors.username?.message}
+              label="Email"
+              type="email"
+              autoComplete="email"
+              {...register('email')}
+              error={errors.email?.message}
             />
 
             <div className="relative">

@@ -46,8 +46,23 @@ const BulkProcessor = () => {
     }
 
     const formData = new FormData()
-    formData.append('file', selectedFile)
-    formData.append('options', JSON.stringify(options))
+    formData.append('routesCsvFile', selectedFile)
+    
+    // Add individual parameters as expected by backend
+    formData.append('dataFolderPath', './data')
+    formData.append('terrainType', 'mixed')
+    formData.append('dataCollectionMode', 'comprehensive')
+    formData.append('maxConcurrentRoutes', options.concurrentRoutes.toString())
+    formData.append('skipExistingRoutes', 'true')
+    formData.append('backgroundProcessing', options.backgroundProcessing.toString())
+    formData.append('includeSharpTurns', options[DATA_COLLECTION_OPTIONS.SHARP_TURNS].toString())
+    formData.append('includeBlindSpots', options[DATA_COLLECTION_OPTIONS.BLIND_SPOTS].toString())
+    formData.append('includeNetworkCoverage', options[DATA_COLLECTION_OPTIONS.NETWORK_COVERAGE].toString())
+    formData.append('includeEnhancedRoadConditions', options[DATA_COLLECTION_OPTIONS.ROAD_CONDITIONS].toString())
+    formData.append('includeAccidentData', options[DATA_COLLECTION_OPTIONS.ACCIDENT_DATA].toString())
+    formData.append('includeSeasonalWeather', options[DATA_COLLECTION_OPTIONS.SEASONAL_WEATHER].toString())
+    formData.append('downloadImages', 'false')
+    formData.append('generateReports', 'false')
 
     try {
       setProcessing(true)
@@ -82,6 +97,17 @@ const BulkProcessor = () => {
   const pollProgress = async () => {
     try {
       const response = await apiService.bulkProcessor.getStatus()
+      
+      // For background processing, we don't get real-time status
+      // The status endpoint returns general statistics, not job progress
+      if (options.backgroundProcessing) {
+        // Stop polling for background processing
+        setProcessing(false)
+        setProgress(null)
+        toast.success('Background processing started! Results will be saved to files when complete.')
+        return
+      }
+      
       setProgress(response)
 
       if (response.status === 'completed') {
@@ -92,7 +118,7 @@ const BulkProcessor = () => {
         setProcessing(false)
         toast.error('Processing failed')
       } else {
-        // Continue polling
+        // Continue polling for foreground processing
         setTimeout(pollProgress, 2000)
       }
     } catch (error) {

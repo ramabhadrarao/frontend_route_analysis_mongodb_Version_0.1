@@ -13,12 +13,30 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    "resolveJsonModule": true,
+
+    /* Path mapping */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@/components/*": ["src/components/*"],
+      "@/pages/*": ["src/pages/*"],
+      "@/utils/*": ["src/utils/*"],
+      "@/services/*": ["src/services/*"],
+      "@/contexts/*": ["src/contexts/*"],
+      "@/config/*": ["src/config/*"],
+      "@/types/*": ["src/types/*"]
+    },
 
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true
   },
-  "include": ["src"]
+  "include": ["src", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist", "build"]
 }

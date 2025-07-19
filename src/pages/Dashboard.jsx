@@ -221,9 +221,9 @@ const Dashboard = () => {
                 fill="#8884d8"
                 dataKey="value"
               >
-                {currentStatistics.riskDistribution.map((entry, index) => (
+                {currentStatistics.riskDistribution?.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
+                )) || []}
               </Pie>
               <Tooltip />
             </PieChart>
@@ -233,7 +233,7 @@ const Dashboard = () => {
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Route Processing</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={currentStatistics.processedRoutes}>
+            <BarChart data={currentStatistics.processedRoutes || []}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
               <YAxis />
@@ -246,7 +246,7 @@ const Dashboard = () => {
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Risk Score Trends</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={currentStatistics.riskTrends}>
+            <LineChart data={currentStatistics.riskTrends || []}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
               <YAxis />
@@ -259,7 +259,7 @@ const Dashboard = () => {
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Alerts</h3>
           <div className="space-y-3">
-            {currentAlerts.slice(0, 5).map((alert) => (
+            {(currentAlerts || []).slice(0, 5).map((alert) => (
               <div key={alert.id} className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
                 <div className="flex-shrink-0">
                   <div className={`w-2 h-2 rounded-full ${
@@ -270,7 +270,7 @@ const Dashboard = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-900">{alert.message}</p>
-                  <p className="text-xs text-gray-500">{formatDate(alert.timestamp)}</p>
+                  <p className="text-xs text-gray-500">{formatDate(alert?.timestamp)}</p>
                 </div>
                 <Badge variant={alert.priority} size="sm">
                   {alert.priority}

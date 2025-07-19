@@ -23,3 +23,4 @@ dist-ssr
 *.sln
 *.sw?
 .env
+route_analysis_mongodb_Version_0.1

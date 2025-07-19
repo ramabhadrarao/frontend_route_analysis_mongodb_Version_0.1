@@ -10,6 +10,9 @@ export const getRiskLabel = (riskLevel) => {
 }
 
 export const formatDistance = (distanceKm) => {
+  if (distanceKm === null || distanceKm === undefined || isNaN(distanceKm)) {
+    return '0km'
+  }
   if (distanceKm < 1) {
     return `${Math.round(distanceKm * 1000)}m`
   }
@@ -17,6 +20,9 @@ export const formatDistance = (distanceKm) => {
 }
 
 export const formatDuration = (durationMinutes) => {
+  if (durationMinutes === null || durationMinutes === undefined || isNaN(durationMinutes)) {
+    return '0min'
+  }
   if (durationMinutes < 60) {
     return `${Math.round(durationMinutes)}min`
   }
@@ -26,11 +32,37 @@ export const formatDuration = (durationMinutes) => {
 }
 
 export const formatDate = (date) => {
-  return format(new Date(date), 'MMM dd, yyyy')
+  if (!date) {
+    return 'N/A'
+  }
+  
+  try {
+    const dateObj = new Date(date)
+    if (isNaN(dateObj.getTime())) {
+      return 'Invalid Date'
+    }
+    return format(dateObj, 'MMM dd, yyyy')
+  } catch (error) {
+    console.error('Date formatting error:', error)
+    return 'Invalid Date'
+  }
 }
 
 export const formatDateTime = (date) => {
-  return format(new Date(date), 'MMM dd, yyyy HH:mm')
+  if (!date) {
+    return 'N/A'
+  }
+  
+  try {
+    const dateObj = new Date(date)
+    if (isNaN(dateObj.getTime())) {
+      return 'Invalid Date'
+    }
+    return format(dateObj, 'MMM dd, yyyy HH:mm')
+  } catch (error) {
+    console.error('DateTime formatting error:', error)
+    return 'Invalid Date'
+  }
 }
 
 export const calculateRiskScore = (factors) => {
@@ -161,6 +193,9 @@ export const getCoordinatesFromString = (coordsString) => {
 }
 
 export const formatCoordinates = (lat, lng) => {
+  if (lat === null || lat === undefined || lng === null || lng === undefined || isNaN(lat) || isNaN(lng)) {
+    return '0.000000, 0.000000'
+  }
   return `${lat.toFixed(6)}, ${lng.toFixed(6)}`
 }
 

@@ -14,7 +14,12 @@ import './index.css'
 function App() {
   return (
     <AuthProvider>
-      <Router>
+      <Router
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
         <RouterRoutes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -29,7 +34,7 @@ function App() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="bulk-processor" element={<BulkProcessor />} />
             <Route path="routes" element={<RoutesPage />} />
-            <Route path="routes/:routeId" element={<RouteDetails />} />
+            <Route path="routes/:_id" element={<RouteDetails />} />
             <Route path="" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </RouterRoutes>

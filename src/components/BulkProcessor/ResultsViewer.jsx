@@ -53,7 +53,7 @@ const ResultsViewer = ({ results, onDownload, onViewDetails }) => {
                   <div>
                     <p className="font-medium text-gray-900">{route.routeName}</p>
                     <p className="text-sm text-gray-500">
-                      {formatDistance(route.totalDistance)} • {formatDate(route.createdAt)}
+                      {formatDistance(route.totalDistance)} • {formatDate(route?.createdAt)}
                     </p>
                   </div>
                 </div>
@@ -66,7 +66,7 @@ const ResultsViewer = ({ results, onDownload, onViewDetails }) => {
                   variant="outline"
                   size="sm"
                   icon={Eye}
-                  onClick={() => onViewDetails(route.routeId)}
+                  onClick={() => onViewDetails(route._id || route.routeId)}
                 >
                   View
                 </Button>

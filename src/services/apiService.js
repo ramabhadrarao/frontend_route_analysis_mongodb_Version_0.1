@@ -1,6 +1,30 @@
 import { api } from './authService'
+import { config } from '../config/config'
 
 export const apiService = {
+  // Authentication APIs
+  auth: {
+    async login(credentials) {
+      const response = await api.post('/api/auth/login', credentials)
+      return response.data
+    },
+
+    async register(userData) {
+      const response = await api.post('/api/auth/register', userData)
+      return response.data
+    },
+
+    async logout() {
+      const response = await api.post('/api/auth/logout')
+      return response.data
+    },
+
+    async getProfile() {
+      const response = await api.get('/api/auth/profile')
+      return response.data.user
+    }
+  },
+
   // Dashboard APIs
   dashboard: {
     async getOverview() {
