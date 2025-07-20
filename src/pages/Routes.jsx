@@ -15,7 +15,10 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  Loader
+  Loader,
+  Database,
+  Activity,
+  BarChart3
 } from 'lucide-react'
 import { api } from '../services/authService'
 import { formatDistance, getRiskLevel, getRiskColor, formatDate } from '../utils/helpers'
@@ -33,17 +36,19 @@ const Routes = () => {
     riskLevel: 'all',
     status: 'all',
     dateRange: 'all',
-    processingStatus: 'all'
+    processingStatus: 'all',
+    hasRecords: 'all' // New filter for routes with data
   })
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: 10,
+    limit: 12,
     total: 0,
     totalPages: 0
   })
   const [showFilters, setShowFilters] = useState(false)
   const [viewMode, setViewMode] = useState('grid')
   const [refreshing, setRefreshing] = useState(false)
+  const [routeStats, setRouteStats] = useState({})
 
   useEffect(() => {
     loadRoutes()
@@ -54,7 +59,7 @@ const Routes = () => {
       setLoading(true)
       setError(null)
       
-      console.log('Frontend Routes: Loading routes from API...')
+      console.log('Routes Page: Loading routes from API...')
       
       const params = {
         page: pagination.page,
@@ -68,42 +73,35 @@ const Routes = () => {
       const queryString = new URLSearchParams(params).toString()
       const response = await api.get(`/api/routes?${queryString}`)
       
-      console.log('Frontend Routes: Raw API response:', response.data)
+      console.log('Routes Page: Raw API response:', response.data)
       
-      // Handle the actual API response structure
+      // Process the API response
       let routesData = []
       let totalRoutes = 0
       
       if (response.data) {
-        // Check various possible response structures from your backend
         if (Array.isArray(response.data)) {
-          // Direct array response
           routesData = response.data
           totalRoutes = response.data.length
         } else if (response.data.routes && Array.isArray(response.data.routes)) {
-          // { routes: [...], pagination: {...} }
           routesData = response.data.routes
           totalRoutes = response.data.pagination?.totalRoutes || response.data.routes.length
         } else if (response.data.data && Array.isArray(response.data.data)) {
-          // { data: [...] }
           routesData = response.data.data
           totalRoutes = response.data.data.length
         } else if (response.data.data && response.data.data.routes && Array.isArray(response.data.data.routes)) {
-          // { data: { routes: [...], pagination: {...} } }
           routesData = response.data.data.routes
           totalRoutes = response.data.data.pagination?.totalRoutes || response.data.data.routes.length
         } else {
-          // Single route object
           routesData = [response.data]
           totalRoutes = 1
         }
       }
       
-      console.log('Frontend Routes: Processed routes data:', {
-        routesCount: routesData.length,
-        totalRoutes: totalRoutes,
-        firstRoute: routesData[0]
-      })
+      console.log('Routes Page: Processed routes:', routesData.length)
+      
+      // Load record counts for each route
+      await loadRouteRecordCounts(routesData)
       
       setRoutes(routesData)
       setPagination(prev => ({
@@ -113,13 +111,116 @@ const Routes = () => {
       }))
       
     } catch (error) {
-      console.error('Frontend Routes: API call failed:', error)
+      console.error('Routes Page: API call failed:', error)
       setError(`Failed to load routes: ${error.response?.data?.message || error.message}`)
       setRoutes([])
       toast.error(`Failed to load routes: ${error.response?.data?.message || error.message}`)
     } finally {
       setLoading(false)
     }
+  }
+
+  // Load record counts for all routes
+  const loadRouteRecordCounts = async (routesData) => {
+    try {
+      console.log('Routes Page: Loading record counts for', routesData.length, 'routes...')
+      
+      const statsPromises = routesData.map(async (route) => {
+        const routeId = route._id || route.routeId
+        if (!routeId) return { routeId: 'unknown', totalRecords: 0 }
+        
+        try {
+          // Get record counts from the API
+          const [
+            gpsResponse,
+            emergencyResponse,
+            weatherResponse,
+            trafficResponse,
+            accidentResponse,
+            roadResponse,
+            sharpTurnsResponse,
+            blindSpotsResponse,
+            networkResponse
+          ] = await Promise.allSettled([
+            api.get(`/api/routes/${routeId}/gps-points`).catch(() => ({ data: [] })),
+            api.get(`/api/routes/${routeId}/emergency-services`).catch(() => ({ data: [] })),
+            api.get(`/api/routes/${routeId}/weather-data`).catch(() => ({ data: [] })),
+            api.get(`/api/routes/${routeId}/traffic-data`).catch(() => ({ data: [] })),
+            api.get(`/api/routes/${routeId}/accident-areas`).catch(() => ({ data: [] })),
+            api.get(`/api/routes/${routeId}/road-conditions`).catch(() => ({ data: [] })),
+            api.get(`/api/visibility/routes/${routeId}/sharp-turns`).catch(() => ({ data: [] })),
+            api.get(`/api/visibility/routes/${routeId}/blind-spots`).catch(() => ({ data: [] })),
+            api.get(`/api/network-coverage/routes/${routeId}/overview`).catch(() => ({ data: [] }))
+          ])
+
+          // Count records from each response
+          const counts = {
+            gpsPoints: getRecordCount(gpsResponse),
+            emergencyServices: getRecordCount(emergencyResponse),
+            weatherData: getRecordCount(weatherResponse),
+            trafficData: getRecordCount(trafficResponse),
+            accidentAreas: getRecordCount(accidentResponse),
+            roadConditions: getRecordCount(roadResponse),
+            sharpTurns: getRecordCount(sharpTurnsResponse),
+            blindSpots: getRecordCount(blindSpotsResponse),
+            networkCoverage: getRecordCount(networkResponse)
+          }
+
+          const totalRecords = Object.values(counts).reduce((sum, count) => sum + count, 0)
+          
+          console.log(`Route ${routeId}: ${totalRecords} total records`)
+          
+          return {
+            routeId: routeId.toString(),
+            totalRecords,
+            breakdown: counts,
+            hasData: totalRecords > 0
+          }
+        } catch (error) {
+          console.error(`Failed to get record counts for route ${routeId}:`, error.message)
+          return {
+            routeId: routeId.toString(),
+            totalRecords: 0,
+            breakdown: {},
+            hasData: false,
+            error: error.message
+          }
+        }
+      })
+
+      const statsResults = await Promise.all(statsPromises)
+      
+      // Create stats map
+      const statsMap = {}
+      statsResults.forEach(stat => {
+        if (stat.routeId && stat.routeId !== 'unknown') {
+          statsMap[stat.routeId] = stat
+        }
+      })
+      
+      setRouteStats(statsMap)
+      console.log('Routes Page: Loaded record counts for', Object.keys(statsMap).length, 'routes')
+      
+    } catch (error) {
+      console.error('Routes Page: Failed to load record counts:', error)
+    }
+  }
+
+  // Helper function to get record count from API response
+  const getRecordCount = (response) => {
+    if (response.status !== 'fulfilled') return 0
+    
+    const data = response.value?.data
+    if (!data) return 0
+    
+    // Handle different response formats
+    if (Array.isArray(data)) return data.length
+    if (data.data && Array.isArray(data.data)) return data.data.length
+    if (data.results && Array.isArray(data.results)) return data.results.length
+    if (data.items && Array.isArray(data.items)) return data.items.length
+    if (typeof data === 'object' && data !== null) return 1
+    
+    return 0
   }
 
   const handleSearch = (value) => {
@@ -141,7 +242,6 @@ const Routes = () => {
   const handleDownloadReport = async (routeId) => {
     try {
       toast.success(`Preparing report for route ${routeId}...`)
-      // Implement actual download when ready
       toast.info('Report download feature will be implemented soon')
     } catch (error) {
       console.error('Download error:', error)
@@ -149,34 +249,54 @@ const Routes = () => {
     }
   }
 
+  const handleViewDetails = (routeId) => {
+    window.open(`/routes/${routeId}`, '_blank')
+  }
+
+  // Get route record stats
+  const getRouteStats = (routeId) => {
+    return routeStats[routeId?.toString()] || { totalRecords: 0, breakdown: {}, hasData: false }
+  }
+
+  // Get processing status based on data availability
+  const getProcessingStatus = (route) => {
+    const stats = getRouteStats(route._id || route.routeId)
+    
+    if (stats.error) return 'error'
+    if (stats.totalRecords > 50) return 'enhanced' // Lots of data collected
+    if (stats.totalRecords > 10) return 'processed' // Some data collected
+    if (stats.totalRecords > 0) return 'basic' // Minimal data
+    return 'pending' // No data
+  }
+
   const getProcessingStatusIcon = (status) => {
     switch (status) {
-      case 'completed': return <CheckCircle className="w-4 h-4 text-green-500" />
-      case 'processing': return <Loader className="w-4 h-4 text-blue-500 animate-spin" />
-      case 'failed': return <XCircle className="w-4 h-4 text-red-500" />
-      default: return <Clock className="w-4 h-4 text-gray-400" />
+      case 'enhanced': return <CheckCircle className="w-4 h-4 text-green-500" />
+      case 'processed': return <Activity className="w-4 h-4 text-blue-500" />
+      case 'basic': return <Clock className="w-4 h-4 text-yellow-500" />
+      case 'error': return <XCircle className="w-4 h-4 text-red-500" />
+      default: return <Loader className="w-4 h-4 text-gray-400" />
     }
   }
 
   const getProcessingStatusColor = (status) => {
     switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800'
-      case 'processing': return 'bg-blue-100 text-blue-800'
-      case 'failed': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
+      case 'enhanced': return 'bg-green-100 text-green-800 border-green-300'
+      case 'processed': return 'bg-blue-100 text-blue-800 border-blue-300'
+      case 'basic': return 'bg-yellow-100 text-yellow-800 border-yellow-300'
+      case 'error': return 'bg-red-100 text-red-800 border-red-300'
+      default: return 'bg-gray-100 text-gray-800 border-gray-300'
     }
   }
 
-  const getProcessingStatus = (route) => {
-    if (!route.dataProcessingStatus) return 'pending'
-    
-    const statuses = Object.values(route.dataProcessingStatus)
-    const completed = statuses.filter(status => status === true).length
-    const total = statuses.length
-    
-    if (completed === total) return 'completed'
-    if (completed > 0) return 'processing'
-    return 'pending'
+  const getProcessingStatusLabel = (status) => {
+    switch (status) {
+      case 'enhanced': return 'Enhanced Data'
+      case 'processed': return 'Processed'
+      case 'basic': return 'Basic Data'
+      case 'error': return 'Error'
+      default: return 'Pending'
+    }
   }
 
   // Safe data extraction helpers
@@ -211,6 +331,13 @@ const Routes = () => {
     { value: 'archived', label: 'Archived' }
   ]
 
+  const dataStatusOptions = [
+    { value: 'all', label: 'All Routes' },
+    { value: 'enhanced', label: 'Enhanced Data' },
+    { value: 'processed', label: 'Has Data' },
+    { value: 'pending', label: 'No Data' }
+  ]
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -241,7 +368,7 @@ const Routes = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Routes Management</h1>
           <p className="text-gray-600">
-            Manage and analyze your journey routes ({routes.length} routes loaded from API)
+            Manage and analyze your journey routes ({routes.length} routes with data records)
           </p>
         </div>
         <div className="flex space-x-3">
@@ -323,6 +450,18 @@ const Routes = () => {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data Status</label>
+                <select
+                  value={filters.hasRecords}
+                  onChange={(e) => handleFilterChange('hasRecords', e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  {dataStatusOptions.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         )}
@@ -339,6 +478,7 @@ const Routes = () => {
             const riskLevel = getRouteRiskLevel(route)
             const distance = getRouteDistance(route)
             const processingStatus = getProcessingStatus(route)
+            const stats = getRouteStats(routeId)
             
             return (
               <Card key={routeId} className="p-6 hover:shadow-lg transition-shadow">
@@ -363,12 +503,6 @@ const Routes = () => {
                       >
                         {riskLevel}
                       </Badge>
-                      <div className={`px-2 py-1 rounded-full text-xs font-medium ${getProcessingStatusColor(processingStatus)}`}>
-                        <div className="flex items-center space-x-1">
-                          {getProcessingStatusIcon(processingStatus)}
-                          <span>{processingStatus}</span>
-                        </div>
-                      </div>
                     </div>
                   </div>
 
@@ -388,6 +522,71 @@ const Routes = () => {
                     </div>
                   </div>
 
+                  {/* Data Records Summary */}
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center space-x-2">
+                        <Database className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm font-medium text-blue-900">Data Records</span>
+                      </div>
+                      <div className={`px-2 py-1 rounded-full text-xs font-medium border ${getProcessingStatusColor(processingStatus)}`}>
+                        <div className="flex items-center space-x-1">
+                          {getProcessingStatusIcon(processingStatus)}
+                          <span>{getProcessingStatusLabel(processingStatus)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-blue-600">
+                        {stats.totalRecords.toLocaleString()}
+                      </div>
+                      <div className="text-xs text-blue-700">Total Records</div>
+                    </div>
+
+                    {/* Record Breakdown */}
+                    {stats.totalRecords > 0 && (
+                      <div className="mt-2 grid grid-cols-3 gap-1 text-xs">
+                        {stats.breakdown.sharpTurns > 0 && (
+                          <div className="text-center">
+                            <div className="font-medium text-orange-600">{stats.breakdown.sharpTurns}</div>
+                            <div className="text-orange-700">Sharp Turns</div>
+                          </div>
+                        )}
+                        {stats.breakdown.blindSpots > 0 && (
+                          <div className="text-center">
+                            <div className="font-medium text-red-600">{stats.breakdown.blindSpots}</div>
+                            <div className="text-red-700">Blind Spots</div>
+                          </div>
+                        )}
+                        {stats.breakdown.emergencyServices > 0 && (
+                          <div className="text-center">
+                            <div className="font-medium text-green-600">{stats.breakdown.emergencyServices}</div>
+                            <div className="text-green-700">Emergency</div>
+                          </div>
+                        )}
+                        {stats.breakdown.roadConditions > 0 && (
+                          <div className="text-center">
+                            <div className="font-medium text-blue-600">{stats.breakdown.roadConditions}</div>
+                            <div className="text-blue-700">Road Data</div>
+                          </div>
+                        )}
+                        {stats.breakdown.networkCoverage > 0 && (
+                          <div className="text-center">
+                            <div className="font-medium text-purple-600">{stats.breakdown.networkCoverage}</div>
+                            <div className="text-purple-700">Network</div>
+                          </div>
+                        )}
+                        {stats.breakdown.accidentAreas > 0 && (
+                          <div className="text-center">
+                            <div className="font-medium text-red-600">{stats.breakdown.accidentAreas}</div>
+                            <div className="text-red-700">Accidents</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Route Meta */}
                   <div className="text-xs text-gray-500 border-t pt-2">
                     <div className="flex justify-between">
@@ -398,18 +597,23 @@ const Routes = () => {
 
                   {/* Actions */}
                   <div className="flex space-x-2 pt-2 border-t border-gray-200">
-                    <Link to={`/routes/${routeId}`} className="flex-1">
-                      <Button variant="outline" size="sm" icon={Eye} className="w-full">
-                        View Details
-                      </Button>
-                    </Link>
                     <Button
                       variant="outline"
                       size="sm"
-                      icon={Download}
-                      onClick={() => handleDownloadReport(routeId)}
+                      icon={Eye}
+                      onClick={() => handleViewDetails(routeId)}
+                      className="flex-1"
                     >
-                      PDF
+                      View Details
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      icon={BarChart3}
+                      onClick={() => handleViewDetails(routeId)}
+                      className="flex-1"
+                    >
+                      Analysis
                     </Button>
                   </div>
                 </div>
@@ -434,6 +638,9 @@ const Routes = () => {
                     Risk Level
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Data Records
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -450,6 +657,7 @@ const Routes = () => {
                   const riskLevel = getRouteRiskLevel(route)
                   const distance = getRouteDistance(route)
                   const processingStatus = getProcessingStatus(route)
+                  const stats = getRouteStats(routeId)
                   
                   return (
                     <tr key={routeId} className="hover:bg-gray-50">
@@ -472,18 +680,37 @@ const Routes = () => {
                         </Badge>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getProcessingStatusColor(processingStatus)}`}>
+                        <div className="text-sm text-gray-900">
+                          <div className="font-medium text-blue-600">
+                            {stats.totalRecords.toLocaleString()} records
+                          </div>
+                          {stats.totalRecords > 0 && (
+                            <div className="text-xs text-gray-500">
+                              {Object.entries(stats.breakdown)
+                                .filter(([_, count]) => count > 0)
+                                .slice(0, 3)
+                                .map(([type, count]) => `${count} ${type}`)
+                                .join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getProcessingStatusColor(processingStatus)}`}>
                           {getProcessingStatusIcon(processingStatus)}
-                          <span className="ml-1">{processingStatus}</span>
+                          <span className="ml-1">{getProcessingStatusLabel(processingStatus)}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
-                          <Link to={`/routes/${routeId}`}>
-                            <Button variant="outline" size="sm" icon={Eye}>
-                              View
-                            </Button>
-                          </Link>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            icon={Eye}
+                            onClick={() => handleViewDetails(routeId)}
+                          >
+                            View
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
@@ -549,6 +776,37 @@ const Routes = () => {
               Upload Routes
             </Button>
           </Link>
+        </Card>
+      )}
+
+      {/* Stats Summary */}
+      {routes.length > 0 && (
+        <Card className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              <p className="text-sm text-blue-800 font-medium">
+                Routes loaded with comprehensive data records from API
+              </p>
+            </div>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-1">
+                <Database className="w-4 h-4 text-blue-600" />
+                <span className="text-sm text-blue-700">
+                  {Object.values(routeStats).reduce((sum, stats) => sum + stats.totalRecords, 0).toLocaleString()} Total Records
+                </span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <Activity className="w-4 h-4 text-green-600" />
+                <span className="text-sm text-green-700">
+                  {Object.values(routeStats).filter(stats => stats.hasData).length} Enhanced Routes
+                </span>
+              </div>
+              <Badge variant="success" size="sm">
+                API Connected
+              </Badge>
+            </div>
+          </div>
         </Card>
       )}
     </div>
