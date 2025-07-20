@@ -1,4 +1,4 @@
-// Enhanced API Service with real-time status tracking
+// Enhanced API Service with real-time status tracking and large batch optimization
 import { api } from './authService'
 import { config } from '../config/config'
 
@@ -132,7 +132,7 @@ export const apiService = {
     }
   },
 
-  // Enhanced Bulk Processing APIs with Real-time Status
+  // Enhanced Bulk Processing APIs with Real-time Status and Optimization
   bulkProcessor: {
     async processCSV(formData) {
       const response = await api.post('/api/bulk-routes/process-csv', formData, {
@@ -162,7 +162,8 @@ export const apiService = {
       return response.data
     },
 
-    // Enhanced status polling with detailed progress tracking
+    // Enhanced status polling with detailed progress tracking for large batches
+   // Enhanced status polling with detailed progress tracking for large batches
     async getStatus() {
       try {
         const response = await api.get('/api/bulk-routes/status')
@@ -179,11 +180,15 @@ export const apiService = {
             failedRoutes: response.data.failedRoutes || response.data.data?.failed?.length || 0,
             estimatedTimeRemaining: response.data.estimatedTimeRemaining || 'Calculating...',
             
+            // Batch information for large scale processing
+            currentBatch: response.data.currentBatch || null,
+            totalBatches: response.data.totalBatches || null,
+            
             // Enhanced data collection progress
-            enhancedDataCollection: {
-              attempted: response.data.enhancedDataCollection?.attempted || 0,
-              successful: response.data.enhancedDataCollection?.successful || 0,
-              failed: response.data.enhancedDataCollection?.failed || 0,
+            enhancedDataCollection: response.data.enhancedDataCollection || {
+              attempted: 0,
+              successful: 0,
+              failed: 0,
               sharpTurnsCollected: response.data.enhancedDataCollection?.sharpTurnsCollected || 0,
               blindSpotsCollected: response.data.enhancedDataCollection?.blindSpotsCollected || 0,
               networkCoverageAnalyzed: response.data.enhancedDataCollection?.networkCoverageAnalyzed || 0,
@@ -195,7 +200,8 @@ export const apiService = {
             },
             
             // Visibility analysis progress  
-            visibilityAnalysis: {
+            visibilityAnalysis: response.data.visibilityAnalysis || {
+              enabled: response.data.visibilityAnalysis?.enabled || false,
               attempted: response.data.visibilityAnalysis?.attempted || 0,
               successful: response.data.visibilityAnalysis?.successful || 0,
               failed: response.data.visibilityAnalysis?.failed || 0,
@@ -206,7 +212,13 @@ export const apiService = {
               criticalTurns: response.data.visibilityAnalysis?.criticalTurns || 0,
               criticalBlindSpots: response.data.visibilityAnalysis?.criticalBlindSpots || 0,
               analysisMode: response.data.visibilityAnalysis?.analysisMode || 'comprehensive',
-              averageAnalysisTime: response.data.visibilityAnalysis?.averageAnalysisTime || null
+              averageAnalysisTime: response.data.visibilityAnalysis?.averageAnalysisTime || null,
+              analysisBreakdown: response.data.visibilityAnalysis?.analysisBreakdown || {
+                sharpTurnsSuccess: 0,
+                sharpTurnsFailed: 0,
+                blindSpotsSuccess: 0,
+                blindSpotsFailed: 0
+              }
             },
             
             // Processing metadata
@@ -214,8 +226,26 @@ export const apiService = {
             dataCollectionMode: response.data.dataCollectionMode || 'comprehensive',
             backgroundProcessing: response.data.backgroundProcessing || false,
             
+            // Performance metrics from backend
+            performanceMetrics: response.data.performanceMetrics || {
+              routesPerMinute: response.data.performanceMetrics?.routesPerMinute || 0,
+              elapsedHours: response.data.performanceMetrics?.elapsedHours || 0,
+              successRate: response.data.performanceMetrics?.successRate || 0,
+              averageTimePerRoute: response.data.performanceMetrics?.averageTimePerRoute || null,
+              estimatedHoursRemaining: response.data.performanceMetrics?.estimatedHoursRemaining || null
+            },
+            
+            // Checkpoint and resume information
+            lastCheckpoint: response.data.lastCheckpoint || null,
+            checkpointInterval: response.data.checkpointInterval || 100,
+            resumable: response.data.resumable || false,
+            
             // Results if completed
-            results: response.data.results || response.data.data || null
+            results: response.data.results || response.data.data || null,
+            
+            // API metadata
+            startTime: response.data.startTime || null,
+            lastUpdate: response.data.lastUpdate || new Date().toISOString()
           }
         } else {
           // No active processing or error
@@ -226,10 +256,13 @@ export const apiService = {
         
         // Handle specific error cases
         if (error.response?.status === 404) {
-          // No active processing
+          // No active processing - this means processing is complete or not found
           return {
             status: 'completed',
-            message: 'No active processing found'
+            message: 'No active processing found',
+            completedRoutes: 0,
+            totalRoutes: 0,
+            failedRoutes: 0
           }
         } else if (error.response?.status >= 500) {
           // Server error
@@ -244,13 +277,18 @@ export const apiService = {
     // Real-time progress streaming (if supported by backend)
     async subscribeToProgress(callback) {
       // This would use WebSockets or Server-Sent Events if available
-      // For now, we'll implement with polling
+      // For now, we'll implement with polling optimized for large batches
       let intervalId
+      let errorCount = 0
+      const maxErrors = 3
       
       const poll = async () => {
         try {
           const status = await this.getStatus()
           callback(status)
+          
+          // Reset error count on successful poll
+          errorCount = 0
           
           // Stop polling if processing is complete
           if (['completed', 'failed', 'cancelled'].includes(status.status)) {
@@ -259,10 +297,11 @@ export const apiService = {
             }
           }
         } catch (error) {
+          errorCount++
           callback({ error: error.message })
           
           // Stop polling on persistent errors
-          if (error.message.includes('No active processing')) {
+          if (error.message.includes('No active processing') || errorCount >= maxErrors) {
             if (intervalId) {
               clearInterval(intervalId)
             }
@@ -273,8 +312,8 @@ export const apiService = {
       // Start immediate poll
       await poll()
       
-      // Continue polling every 2 seconds
-      intervalId = setInterval(poll, 2000)
+      // Continue polling every 30 seconds for large batches
+      intervalId = setInterval(poll, 30000)
       
       // Return unsubscribe function
       return () => {
@@ -296,6 +335,50 @@ export const apiService = {
           return { success: true, message: 'Cancel endpoint not available' }
         }
         throw error
+      }
+    },
+
+    // Resume from checkpoint
+    async resumeProcessing(checkpointFile, options = {}) {
+      try {
+        const response = await api.post('/api/bulk-routes/resume', {
+          checkpointFile,
+          ...options
+        })
+        return response.data
+      } catch (error) {
+        console.error('Resume processing error:', error)
+        throw error
+      }
+    },
+
+    // Get processing configuration for large batches
+    async getConfiguration() {
+      try {
+        const response = await api.get('/api/bulk-routes/configuration')
+        return response.data
+      } catch (error) {
+        console.error('Get configuration error:', error)
+        // Return default configuration if endpoint doesn't exist
+        return {
+          success: true,
+          data: {
+            optimizedFor5800Routes: {
+              maxConcurrentRoutes: 10,
+              optimalBatchSize: 25,
+              routeTimeout: 300000,
+              visibilityTimeout: 120000,
+              estimatedProcessingTime: '48-72 hours',
+              recommendedSettings: {
+                backgroundProcessing: true,
+                dataCollectionMode: 'comprehensive',
+                enableAutomaticVisibilityAnalysis: true,
+                continueOnVisibilityFailure: true,
+                skipExistingRoutes: true
+              }
+            }
+          }
+        }
       }
     },
 
@@ -464,6 +547,13 @@ export const apiService = {
 
     async downloadReport(filename) {
       const response = await api.get(`/api/pdf/download/${filename}`, {
+        responseType: 'blob'
+      })
+      return response
+    },
+
+    async generateBulkReport(processingId, options = {}) {
+      const response = await api.post(`/api/pdf/bulk-processing/${processingId}/generate`, options, {
         responseType: 'blob'
       })
       return response

@@ -15,7 +15,9 @@ import {
   Phone,
   Info,
   Zap,
-  Settings
+  Settings,
+  Database,
+  Server
 } from 'lucide-react'
 
 const ProcessingOptions = ({ options, onUpdateOptions }) => {
@@ -31,16 +33,29 @@ const ProcessingOptions = ({ options, onUpdateOptions }) => {
 
   const concurrentOptions = [
     { value: 1, label: '1 Route (Safest)' },
-    { value: 2, label: '2 Routes (Recommended)' },
+    { value: 2, label: '2 Routes (Conservative)' },
     { value: 3, label: '3 Routes' },
     { value: 4, label: '4 Routes' },
-    { value: 5, label: '5 Routes (Fastest)' }
+    { value: 5, label: '5 Routes' },
+    { value: 10, label: '10 Routes (Optimized for 5800)' }
+  ]
+  
+  const batchSizeOptions = [
+    { value: 10, label: '10 Routes per Batch' },
+    { value: 25, label: '25 Routes per Batch (Optimized)' },
+    { value: 50, label: '50 Routes per Batch' }
   ]
 
   const dataCollectionModes = [
     { value: 'basic', label: 'Basic', description: 'Essential data only' },
     { value: 'comprehensive', label: 'Comprehensive', description: 'Most safety data (recommended)' },
     { value: 'complete', label: 'Complete', description: 'All available data (slower)' }
+  ]
+
+  const visibilityModes = [
+    { value: 'basic', label: 'Basic Analysis' },
+    { value: 'comprehensive', label: 'Comprehensive (Recommended)' },
+    { value: 'detailed', label: 'Detailed Analysis' }
   ]
 
   // Feature groups for better organization
@@ -119,6 +134,9 @@ const ProcessingOptions = ({ options, onUpdateOptions }) => {
     }
   ]
 
+  // Check if large batch mode (more than 1000 routes estimated)
+  const isLargeBatchMode = options.concurrentRoutes >= 10
+
   return (
     <Card className="p-6">
       <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
@@ -127,6 +145,20 @@ const ProcessingOptions = ({ options, onUpdateOptions }) => {
       </h3>
       
       <div className="space-y-6">
+        {/* Large Batch Mode Indicator */}
+        {isLargeBatchMode && (
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <div className="flex items-center space-x-2 mb-2">
+              <Server className="w-5 h-5 text-orange-600" />
+              <span className="font-medium text-orange-900">Large Batch Mode Active</span>
+              <Badge variant="warning" size="sm">OPTIMIZED</Badge>
+            </div>
+            <p className="text-sm text-orange-800">
+              Configuration optimized for processing 5000+ routes with maximum efficiency.
+            </p>
+          </div>
+        )}
+
         {/* Processing Mode Selection (if not handled in parent) */}
         {!options.mode && (
           <div>
@@ -167,11 +199,39 @@ const ProcessingOptions = ({ options, onUpdateOptions }) => {
           />
           <p className="text-sm text-gray-500 mt-1">
             {options.enableAutomaticVisibilityAnalysis 
-              ? 'Lower values recommended for visibility analysis to avoid API rate limits'
+              ? 'Higher concurrency optimized for large batches with automatic retry'
               : 'Number of routes to process simultaneously'
             }
           </p>
         </div>
+
+        {/* Batch Size */}
+        <div>
+          <Select
+            label="Batch Size"
+            options={batchSizeOptions}
+            value={options.batchSize || 25}
+            onChange={(e) => handleToggle('batchSize', parseInt(e.target.value))}
+          />
+          <p className="text-sm text-gray-500 mt-1">
+            Number of routes processed per batch - 25 is optimal for memory management
+          </p>
+        </div>
+
+        {/* Visibility Analysis Mode */}
+        {options.enableAutomaticVisibilityAnalysis && (
+          <div>
+            <Select
+              label="Visibility Analysis Mode"
+              options={visibilityModes}
+              value={options.visibilityAnalysisMode || 'comprehensive'}
+              onChange={(e) => handleToggle('visibilityAnalysisMode', e.target.value)}
+            />
+            <p className="text-sm text-gray-500 mt-1">
+              Comprehensive mode recommended for best accuracy
+            </p>
+          </div>
+        )}
 
         {/* Background Processing */}
         <div>
@@ -179,7 +239,7 @@ const ProcessingOptions = ({ options, onUpdateOptions }) => {
             checked={options.backgroundProcessing}
             onChange={(value) => handleToggle('backgroundProcessing', value)}
             label="Background Processing"
-            description="Continue processing in the background for large batches"
+            description="Continue processing in the background for large batches (required for 5000+ routes)"
           />
         </div>
 
@@ -193,6 +253,7 @@ const ProcessingOptions = ({ options, onUpdateOptions }) => {
             </div>
             <p className="text-sm text-blue-700">
               Sharp turns and blind spots will be automatically detected for each route using advanced algorithms.
+              Timeout: {options.visibilityAnalysisTimeout ? `${options.visibilityAnalysisTimeout / 1000}s` : '120s'} per route
             </p>
           </div>
         )}
@@ -269,6 +330,20 @@ const ProcessingOptions = ({ options, onUpdateOptions }) => {
           </h4>
           <div className="space-y-3">
             <Toggle
+              checked={options.skipExistingRoutes !== false}
+              onChange={(value) => handleToggle('skipExistingRoutes', value)}
+              label="Skip Existing Routes"
+              description="Skip routes that have already been processed to save time"
+            />
+            
+            <Toggle
+              checked={options.continueOnVisibilityFailure !== false}
+              onChange={(value) => handleToggle('continueOnVisibilityFailure', value)}
+              label="Continue on Visibility Failure"
+              description="Continue processing even if visibility analysis fails for some routes"
+            />
+            
+            <Toggle
               checked={options.downloadImages || false}
               onChange={(value) => handleToggle('downloadImages', value)}
               label="Download Street View Images"
@@ -306,9 +381,19 @@ const ProcessingOptions = ({ options, onUpdateOptions }) => {
               <span className="ml-2 font-medium">{options.concurrentRoutes}</span>
             </div>
             <div>
+              <span className="text-gray-600">Batch Size:</span>
+              <span className="ml-2 font-medium">{options.batchSize || 25}</span>
+            </div>
+            <div>
               <span className="text-gray-600">Features Enabled:</span>
               <span className="ml-2 font-medium">
                 {Object.values(DATA_COLLECTION_OPTIONS).filter(key => options[key]).length}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-600">Background:</span>
+              <span className="ml-2 font-medium">
+                {options.backgroundProcessing ? 'Yes' : 'No'}
               </span>
             </div>
           </div>
@@ -323,7 +408,24 @@ const ProcessingOptions = ({ options, onUpdateOptions }) => {
               </div>
               <p className="text-xs text-blue-700 mt-1">
                 Mode: {options.visibilityAnalysisMode || 'comprehensive'} | 
-                Timeout: {Math.round((options.visibilityAnalysisTimeout || 180000) / 60000)}min per route
+                Timeout: {Math.round((options.visibilityAnalysisTimeout || 120000) / 60000)}min per route |
+                Continue on failure: {options.continueOnVisibilityFailure !== false ? 'Yes' : 'No'}
+              </p>
+            </div>
+          )}
+
+          {isLargeBatchMode && (
+            <div className="mt-3 pt-3 border-t border-gray-200">
+              <div className="flex items-center space-x-2">
+                <Database className="w-4 h-4 text-purple-600" />
+                <span className="text-sm font-medium text-purple-900">
+                  Large Batch Optimizations Active
+                </span>
+              </div>
+              <p className="text-xs text-purple-700 mt-1">
+                Checkpoint saves: Every 100 routes | 
+                Memory management: Active | 
+                Retry logic: 3 attempts per route
               </p>
             </div>
           )}
@@ -334,12 +436,14 @@ const ProcessingOptions = ({ options, onUpdateOptions }) => {
           <div className="flex items-start space-x-2">
             <Info className="w-4 h-4 text-blue-600 mt-0.5" />
             <div className="text-sm text-blue-800">
-              <p className="font-medium mb-1">Processing Tips:</p>
+              <p className="font-medium mb-1">Processing Tips for Large Batches:</p>
               <ul className="list-disc list-inside space-y-1">
-                <li>Use "Comprehensive" mode for the best balance of features and speed</li>
-                <li>Enable automatic visibility analysis for enhanced safety detection</li>
-                <li>Lower concurrent routes if you encounter API rate limits</li>
-                <li>Background processing is recommended for large batches (10+ routes)</li>
+                <li>For 5000+ routes: Use 10 concurrent routes with 25 batch size</li>
+                <li>Enable all data collection features for comprehensive analysis</li>
+                <li>Background processing is required for batches over 1000 routes</li>
+                <li>Processing will continue even if you close the browser</li>
+                <li>Checkpoints are saved automatically for resume capability</li>
+                <li>Expect 48-72 hours for 5800 routes with all features enabled</li>
               </ul>
             </div>
           </div>
