@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { api } from '../services/authService'
+import { enhancedRouteService } from '../services/enhancedRouteService'
 import { formatDistance, formatDate, getRiskLevel, getRiskColor } from '../utils/helpers'
 import Card from '../components/UI/Card'
 import Button from '../components/UI/Button'
@@ -81,6 +82,8 @@ const RouteDetails = () => {
       
       // First, load the basic route information
       const routeResponse = await api.get(`/api/routes/${_id}`)
+      const statistics = await enhancedRouteService.getRouteStatistics(_id)
+
       console.log('Frontend RouteDetails: Route API response:', routeResponse.data)
       
       if (routeResponse.data) {

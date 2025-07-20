@@ -1,15 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Download, FileText, Play, RefreshCw, Eye, Zap, Activity, AlertTriangle, CheckCircle, X, Pause } from 'lucide-react'
+import { Download, Eye, RefreshCw, Activity, CheckCircle, X, Pause, Upload, BarChart3 } from 'lucide-react'
 import { apiService } from '../services/apiService'
 import { generateCSVTemplate } from '../utils/helpers'
-import { DATA_COLLECTION_OPTIONS } from '../utils/constants'
 import Card from '../components/UI/Card'
 import Button from '../components/UI/Button'
 import Badge from '../components/UI/Badge'
-import Toggle from '../components/UI/Toggle'
 import Select from '../components/UI/Select'
 import FileUpload from '../components/BulkProcessor/FileUpload'
-import ProcessingOptions from '../components/BulkProcessor/ProcessingOptions'
 import ProcessingProgress from '../components/BulkProcessor/ProcessingProgress'
 import ResultsViewer from '../components/BulkProcessor/ResultsViewer'
 import toast from 'react-hot-toast'
@@ -19,31 +16,9 @@ const BulkProcessor = () => {
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(null)
   const [results, setResults] = useState(null)
-  const [processingId, setProcessingId] = useState(null) // Track processing session
+  const [processingId, setProcessingId] = useState(null)
   const [options, setOptions] = useState({
-    mode: 'enhancedWithVisibility',
-    concurrentRoutes: 2,
-    backgroundProcessing: false, // Change default to false for better tracking
-    dataCollectionMode: 'comprehensive',
-    skipExistingRoutes: true,
-    
-    // Original enhanced options
-    [DATA_COLLECTION_OPTIONS.SHARP_TURNS]: true,
-    [DATA_COLLECTION_OPTIONS.BLIND_SPOTS]: true,
-    [DATA_COLLECTION_OPTIONS.NETWORK_COVERAGE]: true,
-    [DATA_COLLECTION_OPTIONS.ROAD_CONDITIONS]: true,
-    [DATA_COLLECTION_OPTIONS.ACCIDENT_DATA]: true,
-    [DATA_COLLECTION_OPTIONS.SEASONAL_WEATHER]: false,
-    [DATA_COLLECTION_OPTIONS.EMERGENCY_SERVICES]: true,
-    [DATA_COLLECTION_OPTIONS.TRAFFIC_DATA]: true,
-    
-    // Automatic Visibility Analysis Options
-    enableAutomaticVisibilityAnalysis: true,
-    visibilityAnalysisMode: 'comprehensive',
-    visibilityAnalysisTimeout: 180000,
-    continueOnVisibilityFailure: true,
-    downloadImages: false,
-    generateReports: false
+    concurrentRoutes: 2
   })
 
   // Refs for managing polling
@@ -127,7 +102,6 @@ const BulkProcessor = () => {
         await pollProgress()
       } catch (error) {
         console.error('Progress polling error:', error)
-        // Don't stop polling on single error, just log it
       }
     }, 2000) // Poll every 2 seconds
   }
@@ -140,7 +114,7 @@ const BulkProcessor = () => {
     }
   }
 
-  // Enhanced progress polling with better error handling
+  // Enhanced progress polling
   const pollProgress = async () => {
     try {
       console.log('Polling progress from API...')
@@ -159,35 +133,26 @@ const BulkProcessor = () => {
         failedRoutes: response.failedRoutes || 0,
         estimatedTimeRemaining: response.estimatedTimeRemaining || 'Calculating...',
         
-        // Enhanced progress data
+        // Enhanced data collection progress
+        enhancedDataCollection: response.enhancedDataCollection || {
+          attempted: 0,
+          successful: 0,
+          failed: 0,
+          totalRecordsCreated: 0,
+          collectionBreakdown: {}
+        },
+        
+        // Visibility analysis progress  
         visibilityAnalysis: response.visibilityAnalysis || {
           attempted: 0,
           successful: 0,
           failed: 0,
-          currentRoute: null,
           totalSharpTurns: 0,
           totalBlindSpots: 0,
           criticalTurns: 0,
           criticalBlindSpots: 0
         },
         
-        enhancedDataCollection: response.enhancedDataCollection || {
-          attempted: 0,
-          successful: 0,
-          failed: 0,
-          sharpTurnsCollected: 0,
-          blindSpotsCollected: 0,
-          networkCoverageAnalyzed: 0,
-          roadConditionsAnalyzed: 0,
-          accidentDataCollected: 0,
-          seasonalWeatherCollected: 0,
-          totalRecordsCreated: 0,
-          collectionBreakdown: {}
-        },
-        
-        // Processing details
-        processingMode: response.processingMode || options.mode,
-        dataCollectionMode: response.dataCollectionMode || options.dataCollectionMode,
         timestamp: new Date().toISOString()
       }
 
@@ -293,29 +258,29 @@ const BulkProcessor = () => {
     const formData = new FormData()
     formData.append('routesCsvFile', selectedFile)
     
-    // Add all parameters as expected by the backend API
+    // Enhanced + Automatic Visibility processing with minimal options
     formData.append('dataFolderPath', './data')
     formData.append('terrainType', 'mixed')
-    formData.append('dataCollectionMode', options.dataCollectionMode || 'comprehensive')
+    formData.append('dataCollectionMode', 'comprehensive')
     formData.append('maxConcurrentRoutes', options.concurrentRoutes.toString())
     formData.append('skipExistingRoutes', 'true')
-    formData.append('backgroundProcessing', options.backgroundProcessing.toString())
+    formData.append('backgroundProcessing', 'true') // Always use background processing
     
-    // Original enhanced options
-    formData.append('includeSharpTurns', options[DATA_COLLECTION_OPTIONS.SHARP_TURNS].toString())
-    formData.append('includeBlindSpots', options[DATA_COLLECTION_OPTIONS.BLIND_SPOTS].toString())
-    formData.append('includeNetworkCoverage', options[DATA_COLLECTION_OPTIONS.NETWORK_COVERAGE].toString())
-    formData.append('includeEnhancedRoadConditions', options[DATA_COLLECTION_OPTIONS.ROAD_CONDITIONS].toString())
-    formData.append('includeAccidentData', options[DATA_COLLECTION_OPTIONS.ACCIDENT_DATA].toString())
-    formData.append('includeSeasonalWeather', options[DATA_COLLECTION_OPTIONS.SEASONAL_WEATHER].toString())
-    formData.append('downloadImages', options.downloadImages.toString())
-    formData.append('generateReports', options.generateReports.toString())
+    // Enhanced data collection options (all enabled for Enhanced + Visibility)
+    formData.append('includeSharpTurns', 'true')
+    formData.append('includeBlindSpots', 'true')
+    formData.append('includeNetworkCoverage', 'true')
+    formData.append('includeEnhancedRoadConditions', 'true')
+    formData.append('includeAccidentData', 'true')
+    formData.append('includeSeasonalWeather', 'false')
+    formData.append('downloadImages', 'false')
+    formData.append('generateReports', 'false')
     
-    // Automatic Visibility Analysis Parameters
-    formData.append('enableAutomaticVisibilityAnalysis', options.enableAutomaticVisibilityAnalysis.toString())
-    formData.append('visibilityAnalysisTimeout', options.visibilityAnalysisTimeout.toString())
-    formData.append('continueOnVisibilityFailure', options.continueOnVisibilityFailure.toString())
-    formData.append('visibilityAnalysisMode', options.visibilityAnalysisMode)
+    // Automatic Visibility Analysis Parameters (enabled by default)
+    formData.append('enableAutomaticVisibilityAnalysis', 'true')
+    formData.append('visibilityAnalysisTimeout', '180000')
+    formData.append('continueOnVisibilityFailure', 'true')
+    formData.append('visibilityAnalysisMode', 'comprehensive')
 
     try {
       setProcessing(true)
@@ -328,7 +293,7 @@ const BulkProcessor = () => {
       // Initial progress state
       const initialProgress = {
         status: 'starting',
-        currentRoute: 'Initializing enhanced processing with visibility analysis...',
+        currentRoute: 'Initializing Enhanced + Automatic Visibility processing...',
         totalRoutes: 0,
         completedRoutes: 0,
         failedRoutes: 0,
@@ -345,8 +310,6 @@ const BulkProcessor = () => {
           failed: 0,
           totalRecordsCreated: 0
         },
-        processingMode: options.mode,
-        dataCollectionMode: options.dataCollectionMode,
         timestamp: new Date().toISOString()
       }
       
@@ -360,7 +323,7 @@ const BulkProcessor = () => {
         options: options
       })
 
-      console.log('Starting enhanced processing with ID:', newProcessingId)
+      console.log('Starting Enhanced + Automatic Visibility processing with ID:', newProcessingId)
 
       // Use the enhanced endpoint with visibility analysis
       const response = await apiService.bulkProcessor.processCSVEnhanced(formData)
@@ -370,19 +333,7 @@ const BulkProcessor = () => {
         // Start polling for progress immediately
         startProgressPolling()
         
-        const message = options.enableAutomaticVisibilityAnalysis 
-          ? 'Enhanced processing with automatic visibility analysis started!'
-          : 'Enhanced processing started successfully!'
-        
-        toast.success(message)
-        
-        // If background processing is disabled, the response might contain immediate results
-        if (!options.backgroundProcessing && response.data) {
-          // Handle immediate completion for foreground processing
-          setTimeout(() => {
-            handleProcessingComplete({ results: response.data })
-          }, 1000)
-        }
+        toast.success('Enhanced processing with automatic visibility analysis started!')
       } else {
         throw new Error(response.message || 'Processing failed to start')
       }
@@ -485,30 +436,12 @@ const BulkProcessor = () => {
     window.open(`/routes/${routeId}`, '_blank')
   }
 
-  // Processing mode options
-  const processingModes = [
-    { 
-      value: 'basic', 
-      label: 'Basic Processing',
-      description: 'Standard route processing with basic data collection',
-      estimatedTime: '1-2 min per route',
-      features: ['GPS Analysis', 'Basic Risk Assessment']
-    },
-    { 
-      value: 'enhanced', 
-      label: 'Enhanced Processing',
-      description: 'Comprehensive data collection without visibility analysis',
-      estimatedTime: '2-3 min per route',
-      features: ['All Basic Features', 'Emergency Services', 'Weather Data', 'Traffic Analysis', 'Road Conditions']
-    },
-    { 
-      value: 'enhancedWithVisibility', 
-      label: 'Enhanced + Automatic Visibility',
-      description: 'Enhanced processing with automatic sharp turn and blind spot analysis',
-      estimatedTime: '3-4 min per route',
-      features: ['All Enhanced Features', 'Automatic Sharp Turn Detection', 'Blind Spot Analysis', 'Critical Risk Identification'],
-      recommended: true
-    }
+  const concurrentOptions = [
+    { value: 1, label: '1 Route (Safest)' },
+    { value: 2, label: '2 Routes (Recommended)' },
+    { value: 3, label: '3 Routes' },
+    { value: 4, label: '4 Routes' },
+    { value: 5, label: '5 Routes (Fastest)' }
   ]
 
   return (
@@ -518,7 +451,7 @@ const BulkProcessor = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Enhanced Bulk Route Processor</h1>
           <p className="text-gray-600">
-            Upload and process multiple routes with comprehensive risk analysis and real-time progress tracking
+            Process multiple routes with comprehensive data collection and automatic visibility analysis
           </p>
         </div>
         <div className="flex space-x-3">
@@ -552,7 +485,7 @@ const BulkProcessor = () => {
               <div className="flex items-center space-x-2">
                 <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
                 <span className="text-blue-800 font-medium">
-                  Live Processing Active
+                  Enhanced + Automatic Visibility Processing Active
                 </span>
               </div>
               {progress && (
@@ -573,55 +506,51 @@ const BulkProcessor = () => {
                 onClick={handleStopProcessing}
                 className="text-red-600 hover:text-red-700"
               >
-                Stop Tracking
+                Cancel
               </Button>
             </div>
           </div>
         </Card>
       )}
 
-      {/* Processing Mode Selection */}
+      {/* Enhanced + Automatic Visibility Processing Mode (Fixed) */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Processing Mode</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          {processingModes.map((mode) => (
-            <div
-              key={mode.value}
-              className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                options.mode === mode.value
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              } ${processing ? 'opacity-50 cursor-not-allowed' : ''}`}
-              onClick={() => !processing && setOptions(prev => ({ ...prev, mode: mode.value }))}
-            >
-              {mode.recommended && (
-                <div className="absolute -top-2 -right-2">
-                  <Badge variant="primary" className="text-xs">Recommended</Badge>
-                </div>
-              )}
-              <div className="flex items-center space-x-2 mb-2">
-                <div className={`w-4 h-4 rounded-full ${
-                  options.mode === mode.value ? 'bg-blue-500' : 'bg-gray-300'
-                }`} />
-                <h4 className="font-medium text-gray-900">{mode.label}</h4>
-              </div>
-              <p className="text-sm text-gray-600 mb-2">{mode.description}</p>
-              <p className="text-xs text-gray-500 mb-2">⏱️ {mode.estimatedTime}</p>
-              <div className="space-y-1">
-                {mode.features.map((feature, index) => (
-                  <div key={index} className="flex items-center space-x-1">
-                    <CheckCircle className="w-3 h-3 text-green-500" />
-                    <span className="text-xs text-gray-600">{feature}</span>
-                  </div>
-                ))}
-              </div>
+        <div className="text-center">
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg p-6 mb-4">
+            <div className="flex items-center justify-center space-x-3 mb-2">
+              <Eye className="w-8 h-8" />
+              <Activity className="w-8 h-8" />
+              <BarChart3 className="w-8 h-8" />
             </div>
-          ))}
+            <h3 className="text-xl font-bold mb-2">Enhanced + Automatic Visibility Analysis</h3>
+            <p className="text-blue-100">
+              Comprehensive data collection with automatic sharp turn and blind spot detection
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+              <CheckCircle className="w-5 h-5 text-green-600 mx-auto mb-1" />
+              <p className="font-medium text-green-800">Sharp Turns Analysis</p>
+            </div>
+            <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+              <CheckCircle className="w-5 h-5 text-green-600 mx-auto mb-1" />
+              <p className="font-medium text-green-800">Blind Spots Detection</p>
+            </div>
+            <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+              <CheckCircle className="w-5 h-5 text-green-600 mx-auto mb-1" />
+              <p className="font-medium text-green-800">Enhanced Road Conditions</p>
+            </div>
+            <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+              <CheckCircle className="w-5 h-5 text-green-600 mx-auto mb-1" />
+              <p className="font-medium text-green-800">Complete Safety Data</p>
+            </div>
+          </div>
         </div>
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Left Column - Upload & Options */}
+        {/* Left Column - Upload & Simple Options */}
         <div className="space-y-6">
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Upload CSV File</h3>
@@ -633,12 +562,37 @@ const BulkProcessor = () => {
             />
           </Card>
 
-          {/* Enhanced Processing Options */}
-          <ProcessingOptions
-            options={options}
-            onUpdateOptions={setOptions}
-            disabled={processing}
-          />
+          {/* Simplified Options - Only Concurrent Routes */}
+          <Card className="p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Processing Speed</h3>
+            <div className="space-y-4">
+              <div>
+                <Select
+                  label="Concurrent Routes (Processing Speed)"
+                  options={concurrentOptions}
+                  value={options.concurrentRoutes}
+                  onChange={(e) => setOptions(prev => ({ ...prev, concurrentRoutes: parseInt(e.target.value) }))}
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  Higher concurrency = faster processing (recommended: 2-3 routes)
+                </p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center space-x-2 mb-2">
+                  <Eye className="w-5 h-5 text-blue-600" />
+                  <span className="font-medium text-blue-900">Always Includes:</span>
+                </div>
+                <ul className="text-sm text-blue-800 space-y-1">
+                  <li>• Comprehensive data collection from all available APIs</li>
+                  <li>• Automatic sharp turn and blind spot detection</li>
+                  <li>• Network coverage and road condition analysis</li>
+                  <li>• Emergency services and accident data collection</li>
+                  <li>• Real-time progress tracking with live statistics</li>
+                </ul>
+              </div>
+            </div>
+          </Card>
 
           {/* Start Processing Button */}
           <Card className="p-6">
@@ -646,15 +600,12 @@ const BulkProcessor = () => {
               <Button
                 variant="primary"
                 size="lg"
-                icon={options.enableAutomaticVisibilityAnalysis ? Eye : Play}
+                icon={Upload}
                 onClick={handleStartProcessing}
                 disabled={!selectedFile}
-                className="w-full"
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
               >
-                {options.enableAutomaticVisibilityAnalysis
-                  ? 'Start Enhanced Processing + Visibility Analysis'
-                  : 'Start Enhanced Processing'
-                }
+                Start Enhanced Processing + Visibility Analysis
               </Button>
             ) : (
               <div className="space-y-3">
@@ -665,7 +616,7 @@ const BulkProcessor = () => {
                   onClick={handleStopProcessing}
                   className="w-full text-red-600 hover:text-red-700 border-red-300 hover:border-red-400"
                 >
-                  Stop Processing
+                  Cancel Processing
                 </Button>
                 <p className="text-center text-sm text-gray-600">
                   Processing will continue even if you close this page
@@ -673,11 +624,11 @@ const BulkProcessor = () => {
               </div>
             )}
             
-            {options.enableAutomaticVisibilityAnalysis && !processing && (
+            {!processing && selectedFile && (
               <div className="mt-3 text-center">
                 <p className="text-sm text-gray-600">
-                  Estimated time: {selectedFile ? Math.ceil(((selectedFile.size || 0) / 1024 / 10) * 4) : 0} minutes
-                  <span className="text-blue-600 ml-1">(includes visibility analysis)</span>
+                  Estimated time: {Math.ceil(((selectedFile.size || 0) / 1024 / 10) * 4)} minutes
+                  <span className="text-blue-600 ml-1">(includes automatic visibility analysis)</span>
                 </p>
               </div>
             )}
@@ -705,23 +656,14 @@ const BulkProcessor = () => {
           {!progress && !results && (
             <Card className="p-8 text-center">
               <div className="mb-4">
-                {options.enableAutomaticVisibilityAnalysis ? (
-                  <Eye className="mx-auto h-12 w-12 text-blue-400" />
-                ) : (
-                  <FileText className="mx-auto h-12 w-12 text-gray-400" />
-                )}
+                <Eye className="mx-auto h-12 w-12 text-blue-400" />
               </div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">
-                {options.enableAutomaticVisibilityAnalysis 
-                  ? 'Ready for Enhanced Processing with Real-time Tracking'
-                  : 'Ready to Process'
-                }
+                Ready for Enhanced Processing with Real-time Tracking
               </h3>
               <p className="text-gray-500">
-                {options.enableAutomaticVisibilityAnalysis
-                  ? 'Upload a CSV file and start processing. Progress will be tracked in real-time and persisted across page refreshes.'
-                  : 'Upload a CSV file and configure your processing options to get started'
-                }
+                Upload a CSV file to start processing with comprehensive data collection and automatic visibility analysis. 
+                Progress will be tracked in real-time and persisted across page refreshes.
               </p>
             </Card>
           )}
@@ -734,16 +676,14 @@ const BulkProcessor = () => {
           <div className="flex items-center space-x-3">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
             <p className="text-sm text-green-800 font-medium">
-              Enhanced Bulk Processor with Real-time Progress Tracking
+              Enhanced Bulk Processor with Automatic Visibility Analysis
             </p>
           </div>
           <div className="flex items-center space-x-4">
-            {options.enableAutomaticVisibilityAnalysis && (
-              <div className="flex items-center space-x-1">
-                <Eye className="w-4 h-4 text-blue-600" />
-                <span className="text-sm text-blue-700">Auto-Visibility</span>
-              </div>
-            )}
+            <div className="flex items-center space-x-1">
+              <Eye className="w-4 h-4 text-blue-600" />
+              <span className="text-sm text-blue-700">Auto-Visibility</span>
+            </div>
             <div className="flex items-center space-x-1">
               <Activity className="w-4 h-4 text-green-600" />
               <span className="text-sm text-green-700">Real-time Tracking</span>

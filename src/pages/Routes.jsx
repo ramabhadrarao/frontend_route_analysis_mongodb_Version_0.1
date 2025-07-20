@@ -10,17 +10,14 @@ import {
   Eye,
   Download,
   AlertTriangle,
-  Phone,
-  Wifi,
-  Clock,
+  BarChart3,
+  Activity,
   CheckCircle,
   XCircle,
-  Loader,
   Database,
-  Activity,
-  BarChart3
+  TrendingUp
 } from 'lucide-react'
-import { api } from '../services/authService'
+import { enhancedRouteService } from '../services/enhancedRouteService'
 import { formatDistance, getRiskLevel, getRiskColor, formatDate } from '../utils/helpers'
 import Button from '../components/UI/Button'
 import Card from '../components/UI/Card'
@@ -36,8 +33,7 @@ const Routes = () => {
     riskLevel: 'all',
     status: 'all',
     dateRange: 'all',
-    processingStatus: 'all',
-    hasRecords: 'all' // New filter for routes with data
+    hasData: 'all'
   })
   const [pagination, setPagination] = useState({
     page: 1,
@@ -48,7 +44,7 @@ const Routes = () => {
   const [showFilters, setShowFilters] = useState(false)
   const [viewMode, setViewMode] = useState('grid')
   const [refreshing, setRefreshing] = useState(false)
-  const [routeStats, setRouteStats] = useState({})
+  const [overallStats, setOverallStats] = useState(null)
 
   useEffect(() => {
     loadRoutes()
@@ -59,168 +55,106 @@ const Routes = () => {
       setLoading(true)
       setError(null)
       
-      console.log('Routes Page: Loading routes from API...')
+      console.log('Routes Page: Loading routes with enhanced statistics...')
       
       const params = {
         page: pagination.page,
         limit: pagination.limit,
         search: searchTerm,
+        includeStatistics: true, // Always include statistics
         ...Object.fromEntries(
           Object.entries(filters).filter(([_, value]) => value !== 'all')
         )
       }
       
-      const queryString = new URLSearchParams(params).toString()
-      const response = await api.get(`/api/routes?${queryString}`)
+      const response = await enhancedRouteService.getRoutesWithStatistics(params)
       
-      console.log('Routes Page: Raw API response:', response.data)
+      console.log('Routes Page: Enhanced API response:', response)
       
-      // Process the API response
-      let routesData = []
-      let totalRoutes = 0
-      
-      if (response.data) {
-        if (Array.isArray(response.data)) {
-          routesData = response.data
-          totalRoutes = response.data.length
-        } else if (response.data.routes && Array.isArray(response.data.routes)) {
-          routesData = response.data.routes
-          totalRoutes = response.data.pagination?.totalRoutes || response.data.routes.length
-        } else if (response.data.data && Array.isArray(response.data.data)) {
-          routesData = response.data.data
-          totalRoutes = response.data.data.length
-        } else if (response.data.data && response.data.data.routes && Array.isArray(response.data.data.routes)) {
-          routesData = response.data.data.routes
-          totalRoutes = response.data.data.pagination?.totalRoutes || response.data.data.routes.length
-        } else {
-          routesData = [response.data]
-          totalRoutes = 1
-        }
+      if (response.success && response.data) {
+        const routesData = response.data.routes || []
+        console.log('Routes Page: Loaded', routesData.length, 'routes with statistics')
+        
+        setRoutes(routesData)
+        setPagination(prev => ({
+          ...prev,
+          total: response.data.pagination?.totalRoutes || routesData.length,
+          totalPages: response.data.pagination?.totalPages || Math.ceil(routesData.length / pagination.limit)
+        }))
+
+        // Calculate overall statistics
+        calculateOverallStatistics(routesData)
+      } else {
+        throw new Error('Invalid response structure from enhanced route service')
       }
       
-      console.log('Routes Page: Processed routes:', routesData.length)
-      
-      // Load record counts for each route
-      await loadRouteRecordCounts(routesData)
-      
-      setRoutes(routesData)
-      setPagination(prev => ({
-        ...prev,
-        total: totalRoutes,
-        totalPages: Math.ceil(totalRoutes / pagination.limit)
-      }))
-      
     } catch (error) {
-      console.error('Routes Page: API call failed:', error)
-      setError(`Failed to load routes: ${error.response?.data?.message || error.message}`)
+      console.error('Routes Page: Failed to load routes with statistics:', error)
+      setError(`Failed to load routes: ${error.message}`)
       setRoutes([])
-      toast.error(`Failed to load routes: ${error.response?.data?.message || error.message}`)
+      toast.error(`Failed to load routes: ${error.message}`)
     } finally {
       setLoading(false)
     }
   }
 
-  // Load record counts for all routes
-  const loadRouteRecordCounts = async (routesData) => {
-    try {
-      console.log('Routes Page: Loading record counts for', routesData.length, 'routes...')
-      
-      const statsPromises = routesData.map(async (route) => {
-        const routeId = route._id || route.routeId
-        if (!routeId) return { routeId: 'unknown', totalRecords: 0 }
-        
-        try {
-          // Get record counts from the API
-          const [
-            gpsResponse,
-            emergencyResponse,
-            weatherResponse,
-            trafficResponse,
-            accidentResponse,
-            roadResponse,
-            sharpTurnsResponse,
-            blindSpotsResponse,
-            networkResponse
-          ] = await Promise.allSettled([
-            api.get(`/api/routes/${routeId}/gps-points`).catch(() => ({ data: [] })),
-            api.get(`/api/routes/${routeId}/emergency-services`).catch(() => ({ data: [] })),
-            api.get(`/api/routes/${routeId}/weather-data`).catch(() => ({ data: [] })),
-            api.get(`/api/routes/${routeId}/traffic-data`).catch(() => ({ data: [] })),
-            api.get(`/api/routes/${routeId}/accident-areas`).catch(() => ({ data: [] })),
-            api.get(`/api/routes/${routeId}/road-conditions`).catch(() => ({ data: [] })),
-            api.get(`/api/visibility/routes/${routeId}/sharp-turns`).catch(() => ({ data: [] })),
-            api.get(`/api/visibility/routes/${routeId}/blind-spots`).catch(() => ({ data: [] })),
-            api.get(`/api/network-coverage/routes/${routeId}/overview`).catch(() => ({ data: [] }))
-          ])
-
-          // Count records from each response
-          const counts = {
-            gpsPoints: getRecordCount(gpsResponse),
-            emergencyServices: getRecordCount(emergencyResponse),
-            weatherData: getRecordCount(weatherResponse),
-            trafficData: getRecordCount(trafficResponse),
-            accidentAreas: getRecordCount(accidentResponse),
-            roadConditions: getRecordCount(roadResponse),
-            sharpTurns: getRecordCount(sharpTurnsResponse),
-            blindSpots: getRecordCount(blindSpotsResponse),
-            networkCoverage: getRecordCount(networkResponse)
-          }
-
-          const totalRecords = Object.values(counts).reduce((sum, count) => sum + count, 0)
-          
-          console.log(`Route ${routeId}: ${totalRecords} total records`)
-          
-          return {
-            routeId: routeId.toString(),
-            totalRecords,
-            breakdown: counts,
-            hasData: totalRecords > 0
-          }
-        } catch (error) {
-          console.error(`Failed to get record counts for route ${routeId}:`, error.message)
-          return {
-            routeId: routeId.toString(),
-            totalRecords: 0,
-            breakdown: {},
-            hasData: false,
-            error: error.message
-          }
-        }
-      })
-
-      const statsResults = await Promise.all(statsPromises)
-      
-      // Create stats map
-      const statsMap = {}
-      statsResults.forEach(stat => {
-        if (stat.routeId && stat.routeId !== 'unknown') {
-          statsMap[stat.routeId] = stat
-        }
-      })
-      
-      setRouteStats(statsMap)
-      console.log('Routes Page: Loaded record counts for', Object.keys(statsMap).length, 'routes')
-      
-    } catch (error) {
-      console.error('Routes Page: Failed to load record counts:', error)
+  // Calculate overall statistics for all loaded routes
+  const calculateOverallStatistics = (routesData) => {
+    const stats = {
+      totalRoutes: routesData.length,
+      routesWithData: 0,
+      totalDataPoints: 0,
+      totalCriticalPoints: 0,
+      averageDataCompleteness: 0,
+      dataBreakdown: {
+        sharpTurns: 0,
+        blindSpots: 0,
+        emergencyServices: 0,
+        weatherConditions: 0,
+        trafficData: 0,
+        roadConditions: 0,
+        networkCoverage: 0,
+        accidentProneAreas: 0
+      },
+      riskDistribution: {
+        low: 0,
+        medium: 0,
+        high: 0,
+        critical: 0
+      }
     }
-  }
 
-  // Helper function to get record count from API response
-  const getRecordCount = (response) => {
-    if (response.status !== 'fulfilled') return 0
-    
-    const data = response.value?.data
-    if (!data) return 0
-    
-    // Handle different response formats
-    if (Array.isArray(data)) return data.length
-    if (data.data && Array.isArray(data.data)) return data.data.length
-    if (data.results && Array.isArray(data.results)) return data.results.length
-    if (data.items && Array.isArray(data.items)) return data.items.length
-    if (typeof data === 'object' && data !== null) return 1
-    
-    return 0
+    routesData.forEach(route => {
+      if (route.statistics && route.hasStatistics) {
+        stats.routesWithData++
+        stats.totalDataPoints += route.statistics.totals?.totalDataPoints || 0
+        stats.totalCriticalPoints += route.statistics.totals?.criticalPoints || 0
+        stats.averageDataCompleteness += route.statistics.performance?.dataCompleteness || 0
+
+        // Aggregate data breakdown
+        if (route.statistics.dataAvailability) {
+          Object.keys(stats.dataBreakdown).forEach(key => {
+            stats.dataBreakdown[key] += route.statistics.dataAvailability[key] || 0
+          })
+        }
+
+        // Risk distribution
+        const riskLevel = (route.riskLevel || route.statistics?.route?.riskLevel || 'unknown').toLowerCase()
+        if (riskLevel.includes('low')) stats.riskDistribution.low++
+        else if (riskLevel.includes('medium')) stats.riskDistribution.medium++
+        else if (riskLevel.includes('high')) stats.riskDistribution.high++
+        else if (riskLevel.includes('critical')) stats.riskDistribution.critical++
+      }
+    })
+
+    // Calculate averages
+    if (stats.routesWithData > 0) {
+      stats.averageDataCompleteness = Math.round(stats.averageDataCompleteness / stats.routesWithData)
+      stats.averageDataPointsPerRoute = Math.round(stats.totalDataPoints / stats.routesWithData)
+    }
+
+    setOverallStats(stats)
+    console.log('Routes Page: Overall statistics calculated:', stats)
   }
 
   const handleSearch = (value) => {
@@ -253,67 +187,82 @@ const Routes = () => {
     window.open(`/routes/${routeId}`, '_blank')
   }
 
-  // Get route record stats
-  const getRouteStats = (routeId) => {
-    return routeStats[routeId?.toString()] || { totalRecords: 0, breakdown: {}, hasData: false }
-  }
+  // Get route statistics for display
+  const getRouteDisplayData = (route) => {
+    const baseData = {
+      id: route._id || route.routeId,
+      name: route.routeName || 'Unnamed Route',
+      fromLocation: route.fromAddress || route.fromName || 'Unknown Origin',
+      toLocation: route.toAddress || route.toName || 'Unknown Destination',
+      distance: formatDistance(route.totalDistance || 0),
+      riskLevel: route.riskLevel || getRiskLevel(route.riskScore || 0),
+      riskScore: route.riskScore || route.riskScores?.totalWeightedScore || 0,
+      createdAt: route.createdAt
+    }
 
-  // Get processing status based on data availability
-  const getProcessingStatus = (route) => {
-    const stats = getRouteStats(route._id || route.routeId)
-    
-    if (stats.error) return 'error'
-    if (stats.totalRecords > 50) return 'enhanced' // Lots of data collected
-    if (stats.totalRecords > 10) return 'processed' // Some data collected
-    if (stats.totalRecords > 0) return 'basic' // Minimal data
-    return 'pending' // No data
-  }
-
-  const getProcessingStatusIcon = (status) => {
-    switch (status) {
-      case 'enhanced': return <CheckCircle className="w-4 h-4 text-green-500" />
-      case 'processed': return <Activity className="w-4 h-4 text-blue-500" />
-      case 'basic': return <Clock className="w-4 h-4 text-yellow-500" />
-      case 'error': return <XCircle className="w-4 h-4 text-red-500" />
-      default: return <Loader className="w-4 h-4 text-gray-400" />
+    // Add statistics if available
+    if (route.statistics && route.hasStatistics) {
+      return {
+        ...baseData,
+        statistics: {
+          totalDataPoints: route.statistics.totals?.totalDataPoints || 0,
+          criticalPoints: route.statistics.totals?.criticalPoints || 0,
+          dataCompleteness: route.statistics.performance?.dataCompleteness || 0,
+          hasEnhancedData: route.statistics.totals?.totalDataPoints > 50,
+          hasVisibilityData: (route.statistics.dataAvailability?.sharpTurns || 0) + 
+                           (route.statistics.dataAvailability?.blindSpots || 0) > 0,
+          breakdown: {
+            sharpTurns: route.statistics.dataAvailability?.sharpTurns || 0,
+            blindSpots: route.statistics.dataAvailability?.blindSpots || 0,
+            emergencyServices: route.statistics.dataAvailability?.emergencyServices || 0,
+            weatherConditions: route.statistics.dataAvailability?.weatherConditions || 0,
+            trafficData: route.statistics.dataAvailability?.trafficData || 0,
+            roadConditions: route.statistics.dataAvailability?.roadConditions || 0,
+            networkCoverage: route.statistics.dataAvailability?.networkCoverage || 0,
+            accidentProneAreas: route.statistics.dataAvailability?.accidentProneAreas || 0
+          }
+        },
+        hasStatistics: true,
+        statisticsError: null
+      }
+    } else {
+      return {
+        ...baseData,
+        statistics: {
+          totalDataPoints: 0,
+          criticalPoints: 0,
+          dataCompleteness: 0,
+          hasEnhancedData: false,
+          hasVisibilityData: false,
+          breakdown: {
+            sharpTurns: 0,
+            blindSpots: 0,
+            emergencyServices: 0,
+            weatherConditions: 0,
+            trafficData: 0,
+            roadConditions: 0,
+            networkCoverage: 0,
+            accidentProneAreas: 0
+          }
+        },
+        hasStatistics: false,
+        statisticsError: route.statisticsError || 'No statistics available'
+      }
     }
   }
 
-  const getProcessingStatusColor = (status) => {
-    switch (status) {
-      case 'enhanced': return 'bg-green-100 text-green-800 border-green-300'
-      case 'processed': return 'bg-blue-100 text-blue-800 border-blue-300'
-      case 'basic': return 'bg-yellow-100 text-yellow-800 border-yellow-300'
-      case 'error': return 'bg-red-100 text-red-800 border-red-300'
-      default: return 'bg-gray-100 text-gray-800 border-gray-300'
-    }
+  const getDataQualityColor = (completeness) => {
+    if (completeness >= 80) return 'text-green-600 bg-green-100'
+    if (completeness >= 60) return 'text-blue-600 bg-blue-100'
+    if (completeness >= 40) return 'text-yellow-600 bg-yellow-100'
+    return 'text-red-600 bg-red-100'
   }
 
-  const getProcessingStatusLabel = (status) => {
-    switch (status) {
-      case 'enhanced': return 'Enhanced Data'
-      case 'processed': return 'Processed'
-      case 'basic': return 'Basic Data'
-      case 'error': return 'Error'
-      default: return 'Pending'
-    }
-  }
-
-  // Safe data extraction helpers
-  const safeGet = (obj, path, defaultValue = '') => {
-    try {
-      return path.split('.').reduce((current, key) => current?.[key], obj) || defaultValue
-    } catch {
-      return defaultValue
-    }
-  }
-
-  const getRouteRiskLevel = (route) => {
-    return route.riskLevel || getRiskLevel(route.riskScore || route.riskScores?.totalWeightedScore || 0)
-  }
-
-  const getRouteDistance = (route) => {
-    return formatDistance(route.totalDistance || 0)
+  const getDataQualityLabel = (completeness) => {
+    if (completeness >= 80) return 'Excellent'
+    if (completeness >= 60) return 'Good'
+    if (completeness >= 40) return 'Fair'
+    return 'Poor'
   }
 
   const riskLevelOptions = [
@@ -334,14 +283,14 @@ const Routes = () => {
   const dataStatusOptions = [
     { value: 'all', label: 'All Routes' },
     { value: 'enhanced', label: 'Enhanced Data' },
-    { value: 'processed', label: 'Has Data' },
-    { value: 'pending', label: 'No Data' }
+    { value: 'basic', label: 'Basic Data' },
+    { value: 'no-data', label: 'No Data' }
   ]
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <LoadingSpinner size="lg" text="Loading routes from API..." />
+        <LoadingSpinner size="lg" text="Loading routes with enhanced statistics..." />
       </div>
     )
   }
@@ -351,10 +300,10 @@ const Routes = () => {
       <div className="flex flex-col items-center justify-center h-64 space-y-4">
         <XCircle className="w-12 h-12 text-red-500" />
         <div className="text-center">
-          <h3 className="text-lg font-medium text-gray-900 mb-2">API Error</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Enhanced Statistics Error</h3>
           <p className="text-gray-500 mb-4">{error}</p>
           <Button onClick={handleRefresh} variant="primary">
-            Retry API Call
+            Retry Loading
           </Button>
         </div>
       </div>
@@ -368,7 +317,7 @@ const Routes = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Routes Management</h1>
           <p className="text-gray-600">
-            Manage and analyze your journey routes ({routes.length} routes with data records)
+            Manage and analyze routes with comprehensive statistics ({routes.length} routes loaded)
           </p>
         </div>
         <div className="flex space-x-3">
@@ -378,7 +327,7 @@ const Routes = () => {
             onClick={handleRefresh}
             loading={refreshing}
           >
-            Refresh API
+            Refresh Statistics
           </Button>
           <Link to="/bulk-processor">
             <Button variant="primary" icon={Plus}>
@@ -387,6 +336,52 @@ const Routes = () => {
           </Link>
         </div>
       </div>
+
+      {/* Overall Statistics Summary */}
+      {overallStats && (
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Overall Statistics</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+              <div className="text-2xl font-bold text-blue-600">{overallStats.totalRoutes}</div>
+              <div className="text-sm text-blue-700">Total Routes</div>
+            </div>
+            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+              <div className="text-2xl font-bold text-green-600">{overallStats.routesWithData}</div>
+              <div className="text-sm text-green-700">With Enhanced Data</div>
+            </div>
+            <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+              <div className="text-2xl font-bold text-purple-600">{overallStats.totalDataPoints.toLocaleString()}</div>
+              <div className="text-sm text-purple-700">Total Data Points</div>
+            </div>
+            <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+              <div className="text-2xl font-bold text-orange-600">{overallStats.totalCriticalPoints}</div>
+              <div className="text-sm text-orange-700">Critical Points</div>
+            </div>
+            <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
+              <div className="text-2xl font-bold text-indigo-600">{overallStats.averageDataCompleteness}%</div>
+              <div className="text-sm text-indigo-700">Avg Completeness</div>
+            </div>
+            <div className="bg-teal-50 p-4 rounded-lg border border-teal-200">
+              <div className="text-2xl font-bold text-teal-600">{overallStats.averageDataPointsPerRoute || 0}</div>
+              <div className="text-sm text-teal-700">Avg Points/Route</div>
+            </div>
+          </div>
+          
+          {/* Data Breakdown */}
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Data Distribution Across All Routes</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2 text-xs">
+              {Object.entries(overallStats.dataBreakdown).map(([key, value]) => (
+                <div key={key} className="text-center">
+                  <div className="font-semibold text-gray-900">{value.toLocaleString()}</div>
+                  <div className="text-gray-600 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Search and Filter Bar */}
       <Card className="p-4">
@@ -451,10 +446,10 @@ const Routes = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Data Status</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data Availability</label>
                 <select
-                  value={filters.hasRecords}
-                  onChange={(e) => handleFilterChange('hasRecords', e.target.value)}
+                  value={filters.hasData}
+                  onChange={(e) => handleFilterChange('hasData', e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
                   {dataStatusOptions.map(option => (
@@ -471,37 +466,30 @@ const Routes = () => {
       {viewMode === 'grid' ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           {routes.map((route) => {
-            const routeId = route._id || route.routeId
-            const routeName = route.routeName || 'Unnamed Route'
-            const fromLocation = route.fromAddress || route.fromName || 'Unknown Origin'
-            const toLocation = route.toAddress || route.toName || 'Unknown Destination'
-            const riskLevel = getRouteRiskLevel(route)
-            const distance = getRouteDistance(route)
-            const processingStatus = getProcessingStatus(route)
-            const stats = getRouteStats(routeId)
+            const displayData = getRouteDisplayData(route)
             
             return (
-              <Card key={routeId} className="p-6 hover:shadow-lg transition-shadow">
+              <Card key={displayData.id} className="p-6 hover:shadow-lg transition-shadow">
                 <div className="space-y-4">
                   {/* Header */}
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                        {routeName}
+                        {displayData.name}
                       </h3>
                       <div className="flex items-center text-sm text-gray-600 mb-2">
                         <MapPin className="w-4 h-4 mr-1" />
                         <span className="truncate">
-                          {fromLocation} → {toLocation}
+                          {displayData.fromLocation} → {displayData.toLocation}
                         </span>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2 ml-2">
                       <Badge
-                        variant={getRiskColor(riskLevel)}
+                        variant={getRiskColor(displayData.riskLevel)}
                         className="text-xs"
                       >
-                        {riskLevel}
+                        {displayData.riskLevel}
                       </Badge>
                     </div>
                   </div>
@@ -510,78 +498,115 @@ const Routes = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="text-center p-3 bg-gray-50 rounded-lg">
                       <div className="text-lg font-semibold text-gray-900">
-                        {distance}
+                        {displayData.distance}
                       </div>
                       <div className="text-xs text-gray-600">Distance</div>
                     </div>
                     <div className="text-center p-3 bg-gray-50 rounded-lg">
                       <div className="text-lg font-semibold text-gray-900">
-                        {route.riskScore || route.riskScores?.totalWeightedScore || 0}
+                        {displayData.riskScore}
                       </div>
                       <div className="text-xs text-gray-600">Risk Score</div>
                     </div>
                   </div>
 
-                  {/* Data Records Summary */}
-                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                    <div className="flex items-center justify-between mb-2">
+                  {/* Enhanced Statistics Section */}
+                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center space-x-2">
                         <Database className="w-4 h-4 text-blue-600" />
-                        <span className="text-sm font-medium text-blue-900">Data Records</span>
+                        <span className="text-sm font-medium text-blue-900">Enhanced Data</span>
                       </div>
-                      <div className={`px-2 py-1 rounded-full text-xs font-medium border ${getProcessingStatusColor(processingStatus)}`}>
-                        <div className="flex items-center space-x-1">
-                          {getProcessingStatusIcon(processingStatus)}
-                          <span>{getProcessingStatusLabel(processingStatus)}</span>
-                        </div>
+                      <div className="flex items-center space-x-2">
+                        {displayData.hasStatistics ? (
+                          <Badge className={getDataQualityColor(displayData.statistics.dataCompleteness)}>
+                            {getDataQualityLabel(displayData.statistics.dataCompleteness)}
+                          </Badge>
+                        ) : (
+                          <Badge variant="danger" size="sm">No Data</Badge>
+                        )}
                       </div>
                     </div>
                     
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-blue-600">
-                        {stats.totalRecords.toLocaleString()}
-                      </div>
-                      <div className="text-xs text-blue-700">Total Records</div>
-                    </div>
+                    {displayData.hasStatistics ? (
+                      <>
+                        <div className="text-center mb-3">
+                          <div className="text-2xl font-bold text-blue-600">
+                            {displayData.statistics.totalDataPoints.toLocaleString()}
+                          </div>
+                          <div className="text-xs text-blue-700">Total Data Points</div>
+                          {displayData.statistics.criticalPoints > 0 && (
+                            <div className="text-sm text-red-600 font-medium mt-1">
+                              {displayData.statistics.criticalPoints} Critical Points
+                            </div>
+                          )}
+                        </div>
 
-                    {/* Record Breakdown */}
-                    {stats.totalRecords > 0 && (
-                      <div className="mt-2 grid grid-cols-3 gap-1 text-xs">
-                        {stats.breakdown.sharpTurns > 0 && (
-                          <div className="text-center">
-                            <div className="font-medium text-orange-600">{stats.breakdown.sharpTurns}</div>
-                            <div className="text-orange-700">Sharp Turns</div>
-                          </div>
-                        )}
-                        {stats.breakdown.blindSpots > 0 && (
-                          <div className="text-center">
-                            <div className="font-medium text-red-600">{stats.breakdown.blindSpots}</div>
-                            <div className="text-red-700">Blind Spots</div>
-                          </div>
-                        )}
-                        {stats.breakdown.emergencyServices > 0 && (
-                          <div className="text-center">
-                            <div className="font-medium text-green-600">{stats.breakdown.emergencyServices}</div>
-                            <div className="text-green-700">Emergency</div>
-                          </div>
-                        )}
-                        {stats.breakdown.roadConditions > 0 && (
-                          <div className="text-center">
-                            <div className="font-medium text-blue-600">{stats.breakdown.roadConditions}</div>
-                            <div className="text-blue-700">Road Data</div>
-                          </div>
-                        )}
-                        {stats.breakdown.networkCoverage > 0 && (
-                          <div className="text-center">
-                            <div className="font-medium text-purple-600">{stats.breakdown.networkCoverage}</div>
-                            <div className="text-purple-700">Network</div>
-                          </div>
-                        )}
-                        {stats.breakdown.accidentAreas > 0 && (
-                          <div className="text-center">
-                            <div className="font-medium text-red-600">{stats.breakdown.accidentAreas}</div>
-                            <div className="text-red-700">Accidents</div>
-                          </div>
+                        {/* Enhanced Data Breakdown */}
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          {displayData.statistics.breakdown.sharpTurns > 0 && (
+                            <div className="text-center">
+                              <div className="font-medium text-orange-600">{displayData.statistics.breakdown.sharpTurns}</div>
+                              <div className="text-orange-700">Sharp Turns</div>
+                            </div>
+                          )}
+                          {displayData.statistics.breakdown.blindSpots > 0 && (
+                            <div className="text-center">
+                              <div className="font-medium text-red-600">{displayData.statistics.breakdown.blindSpots}</div>
+                              <div className="text-red-700">Blind Spots</div>
+                            </div>
+                          )}
+                          {displayData.statistics.breakdown.emergencyServices > 0 && (
+                            <div className="text-center">
+                              <div className="font-medium text-green-600">{displayData.statistics.breakdown.emergencyServices}</div>
+                              <div className="text-green-700">Emergency</div>
+                            </div>
+                          )}
+                          {displayData.statistics.breakdown.accidentProneAreas > 0 && (
+                            <div className="text-center">
+                              <div className="font-medium text-red-600">{displayData.statistics.breakdown.accidentProneAreas}</div>
+                              <div className="text-red-700">Accidents</div>
+                            </div>
+                          )}
+                          {displayData.statistics.breakdown.networkCoverage > 0 && (
+                            <div className="text-center">
+                              <div className="font-medium text-purple-600">{displayData.statistics.breakdown.networkCoverage}</div>
+                              <div className="text-purple-700">Network</div>
+                            </div>
+                          )}
+                          {displayData.statistics.breakdown.roadConditions > 0 && (
+                            <div className="text-center">
+                              <div className="font-medium text-blue-600">{displayData.statistics.breakdown.roadConditions}</div>
+                              <div className="text-blue-700">Road Data</div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Enhanced Features Indicators */}
+                        <div className="flex flex-wrap gap-1 mt-3">
+                          {displayData.statistics.hasVisibilityData && (
+                            <Badge variant="warning" className="text-xs">
+                              Visibility Analysis
+                            </Badge>
+                          )}
+                          {displayData.statistics.hasEnhancedData && (
+                            <Badge variant="success" className="text-xs">
+                              Enhanced Data
+                            </Badge>
+                          )}
+                          {displayData.statistics.criticalPoints > 0 && (
+                            <Badge variant="danger" className="text-xs">
+                              Critical Issues
+                            </Badge>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center text-gray-500">
+                        <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                        <p className="text-sm">No enhanced statistics available</p>
+                        {displayData.statisticsError && (
+                          <p className="text-xs text-red-500 mt-1">{displayData.statisticsError}</p>
                         )}
                       </div>
                     )}
@@ -590,8 +615,8 @@ const Routes = () => {
                   {/* Route Meta */}
                   <div className="text-xs text-gray-500 border-t pt-2">
                     <div className="flex justify-between">
-                      <span>Created: {formatDate(route.createdAt)}</span>
-                      <span>ID: {routeId?.toString().slice(-8)}</span>
+                      <span>Created: {formatDate(displayData.createdAt)}</span>
+                      <span>ID: {displayData.id?.toString().slice(-8)}</span>
                     </div>
                   </div>
 
@@ -601,7 +626,7 @@ const Routes = () => {
                       variant="outline"
                       size="sm"
                       icon={Eye}
-                      onClick={() => handleViewDetails(routeId)}
+                      onClick={() => handleViewDetails(displayData.id)}
                       className="flex-1"
                     >
                       View Details
@@ -610,10 +635,10 @@ const Routes = () => {
                       variant="outline"
                       size="sm"
                       icon={BarChart3}
-                      onClick={() => handleViewDetails(routeId)}
+                      onClick={() => handleViewDetails(displayData.id)}
                       className="flex-1"
                     >
-                      Analysis
+                      Statistics
                     </Button>
                   </div>
                 </div>
@@ -638,10 +663,10 @@ const Routes = () => {
                     Risk Level
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Data Records
+                    Enhanced Data
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
+                    Data Quality
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
@@ -650,56 +675,52 @@ const Routes = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {routes.map((route) => {
-                  const routeId = route._id || route.routeId
-                  const routeName = route.routeName || 'Unnamed Route'
-                  const fromLocation = route.fromAddress || route.fromName || 'Unknown Origin'
-                  const toLocation = route.toAddress || route.toName || 'Unknown Destination'
-                  const riskLevel = getRouteRiskLevel(route)
-                  const distance = getRouteDistance(route)
-                  const processingStatus = getProcessingStatus(route)
-                  const stats = getRouteStats(routeId)
+                  const displayData = getRouteDisplayData(route)
                   
                   return (
-                    <tr key={routeId} className="hover:bg-gray-50">
+                    <tr key={displayData.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
                           <div className="text-sm font-medium text-gray-900">
-                            {routeName}
+                            {displayData.name}
                           </div>
                           <div className="text-sm text-gray-500 truncate max-w-xs">
-                            {fromLocation} → {toLocation}
+                            {displayData.fromLocation} → {displayData.toLocation}
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {distance}
+                        {displayData.distance}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant={getRiskColor(riskLevel)}>
-                          {riskLevel} ({route.riskScore || route.riskScores?.totalWeightedScore || 0})
+                        <Badge variant={getRiskColor(displayData.riskLevel)}>
+                          {displayData.riskLevel} ({displayData.riskScore})
                         </Badge>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          <div className="font-medium text-blue-600">
-                            {stats.totalRecords.toLocaleString()} records
-                          </div>
-                          {stats.totalRecords > 0 && (
-                            <div className="text-xs text-gray-500">
-                              {Object.entries(stats.breakdown)
-                                .filter(([_, count]) => count > 0)
-                                .slice(0, 3)
-                                .map(([type, count]) => `${count} ${type}`)
-                                .join(', ')}
+                        {displayData.hasStatistics ? (
+                          <div className="text-sm">
+                            <div className="font-medium text-blue-600">
+                              {displayData.statistics.totalDataPoints.toLocaleString()} points
                             </div>
-                          )}
-                        </div>
+                            <div className="text-xs text-gray-500">
+                              {displayData.statistics.criticalPoints > 0 && (
+                                <span className="text-red-600">{displayData.statistics.criticalPoints} critical</span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-500">No data available</div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getProcessingStatusColor(processingStatus)}`}>
-                          {getProcessingStatusIcon(processingStatus)}
-                          <span className="ml-1">{getProcessingStatusLabel(processingStatus)}</span>
-                        </div>
+                        {displayData.hasStatistics ? (
+                          <Badge className={getDataQualityColor(displayData.statistics.dataCompleteness)}>
+                            {displayData.statistics.dataCompleteness}% - {getDataQualityLabel(displayData.statistics.dataCompleteness)}
+                          </Badge>
+                        ) : (
+                          <Badge variant="danger">No Data</Badge>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
@@ -707,7 +728,7 @@ const Routes = () => {
                             variant="outline"
                             size="sm"
                             icon={Eye}
-                            onClick={() => handleViewDetails(routeId)}
+                            onClick={() => handleViewDetails(displayData.id)}
                           >
                             View
                           </Button>
@@ -715,9 +736,9 @@ const Routes = () => {
                             variant="outline"
                             size="sm"
                             icon={Download}
-                            onClick={() => handleDownloadReport(routeId)}
+                            onClick={() => handleDownloadReport(displayData.id)}
                           >
-                            PDF
+                            Report
                           </Button>
                         </div>
                       </td>
@@ -769,7 +790,7 @@ const Routes = () => {
           <p className="text-gray-500 mb-4">
             {searchTerm || Object.values(filters).some(f => f !== 'all') 
               ? 'Try adjusting your search criteria or filters.'
-              : 'No routes available from the API. Upload some route data to get started.'}
+              : 'No routes available. Upload some route data to get started.'}
           </p>
           <Link to="/bulk-processor">
             <Button variant="primary" icon={Plus}>
@@ -779,36 +800,40 @@ const Routes = () => {
         </Card>
       )}
 
-      {/* Stats Summary */}
-      {routes.length > 0 && (
-        <Card className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-              <p className="text-sm text-blue-800 font-medium">
-                Routes loaded with comprehensive data records from API
-              </p>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-1">
-                <Database className="w-4 h-4 text-blue-600" />
-                <span className="text-sm text-blue-700">
-                  {Object.values(routeStats).reduce((sum, stats) => sum + stats.totalRecords, 0).toLocaleString()} Total Records
-                </span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <Activity className="w-4 h-4 text-green-600" />
-                <span className="text-sm text-green-700">
-                  {Object.values(routeStats).filter(stats => stats.hasData).length} Enhanced Routes
-                </span>
-              </div>
-              <Badge variant="success" size="sm">
-                API Connected
-              </Badge>
-            </div>
+      {/* Enhanced Status Footer */}
+      <Card className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+            <p className="text-sm text-blue-800 font-medium">
+              Routes loaded with comprehensive enhanced statistics
+            </p>
           </div>
-        </Card>
-      )}
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-1">
+              <Database className="w-4 h-4 text-blue-600" />
+              <span className="text-sm text-blue-700">
+                {overallStats?.totalDataPoints?.toLocaleString() || 0} Total Data Points
+              </span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <Activity className="w-4 h-4 text-green-600" />
+              <span className="text-sm text-green-700">
+                {overallStats?.routesWithData || 0} Enhanced Routes
+              </span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <TrendingUp className="w-4 h-4 text-purple-600" />
+              <span className="text-sm text-purple-700">
+                {overallStats?.averageDataCompleteness || 0}% Avg Quality
+              </span>
+            </div>
+            <Badge variant="success" size="sm">
+              Statistics API Connected
+            </Badge>
+          </div>
+        </div>
+      </Card>
     </div>
   )
 }
