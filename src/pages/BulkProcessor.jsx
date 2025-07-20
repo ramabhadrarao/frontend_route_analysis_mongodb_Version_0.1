@@ -28,16 +28,26 @@ const BulkProcessor = () => {
   const mountedRef = useRef(true)
 
   // Check for existing processing on component mount
-  useEffect(() => {
-    checkExistingProcessing()
-    
-    return () => {
-      mountedRef.current = false
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-      }
+useEffect(() => {
+  mountedRef.current = true
+  checkExistingProcessing()
+  
+  return () => {
+    mountedRef.current = false
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
     }
-  }, [])
+    // Save current state if still processing
+    if (processing && progress && progress.status !== 'completed' && progress.status !== 'failed' && progress.status !== 'cancelled') {
+      saveProcessingState({
+        processing: true,
+        progress: progress,
+        processingId: processingId,
+        options: options
+      })
+    }
+  }
+}, [])
 
   // Save processing state to localStorage
   const saveProcessingState = (state) => {
@@ -70,22 +80,34 @@ const BulkProcessor = () => {
   }
 
   // Check for existing processing on page load
-  const checkExistingProcessing = async () => {
-    const savedState = loadProcessingState()
+  // 5. Replace the checkExistingProcessing function (around line 85-103)
+const checkExistingProcessing = async () => {
+  const savedState = loadProcessingState()
+  
+  if (savedState && savedState.processing) {
+    console.log('Found existing processing state, checking status...')
+    setProcessing(true)
+    setProgress(savedState.progress || null)
+    setProcessingId(savedState.processingId || null)
+    setOptions(savedState.options || options)
     
-    if (savedState && savedState.processing) {
-      console.log('Found existing processing state, checking status...')
-      setProcessing(true)
-      setProgress(savedState.progress || null)
-      setProcessingId(savedState.processingId || null)
-      setOptions(savedState.options || options)
-      
-      // Start polling immediately
-      startProgressPolling()
-      
-      toast.success('Resuming bulk processing status tracking...')
-    }
+    // Start polling immediately
+    startProgressPolling()
+    
+    toast.success('Resuming bulk processing status tracking...', { duration: 3000 })
+  } else if (savedState && savedState.progress && savedState.progress.status === 'completed') {
+    // Found completed state
+    console.log('Found completed processing state')
+    setProgress(savedState.progress)
+    setProcessing(false)
+    
+    // Clear the saved state after showing it
+    setTimeout(() => {
+      clearProcessingState()
+      setProgress(null)
+    }, 5000)
   }
+}
 
   // Start progress polling
   const startProgressPolling = () => {
@@ -122,157 +144,213 @@ const BulkProcessor = () => {
 
   // Enhanced progress polling
   // Enhanced progress polling
-  const pollProgress = async () => {
-    try {
-      console.log('Polling progress from API...')
-      const response = await apiService.bulkProcessor.getStatus()
+  // Replace these functions in src/pages/BulkProcessor.jsx
+
+// 1. Replace the pollProgress function (around line 140-260)
+const pollProgress = async () => {
+  try {
+    console.log('Polling progress from API...')
+    const response = await apiService.bulkProcessor.getStatus()
+    
+    console.log('Progress poll response:', response)
+    
+    if (!mountedRef.current) return
+
+    // Handle the case where no processing is found (only when there's truly no data)
+    if (response.message === 'No active processing found' && !response.completedRoutes) {
+      console.log('No active processing found, clearing state')
+      handleProcessingComplete(null)
+      return
+    }
+
+    // Update progress state
+    const newProgress = {
+      status: response.status || 'processing',
+      currentRoute: response.currentRoute || 'Processing...',
+      totalRoutes: response.totalRoutes || 0,
+      completedRoutes: response.completedRoutes || 0,
+      failedRoutes: response.failedRoutes || 0,
+      estimatedTimeRemaining: response.estimatedTimeRemaining || 'Calculating...',
       
-      console.log('Progress poll response:', response)
+      // Enhanced data collection progress
+      enhancedDataCollection: response.enhancedDataCollection || {
+        attempted: 0,
+        successful: 0,
+        failed: 0,
+        totalRecordsCreated: 0,
+        collectionBreakdown: {}
+      },
       
-      if (!mountedRef.current) return
-
-      // Check if we got a 404 or "no processing" response
-      if (response.message === 'No active processing found' || 
-          (response.status === 'completed' && response.totalRoutes === 0)) {
-        console.log('No active processing found, clearing state')
-        handleProcessingComplete(null)
-        return
-      }
-
-      // Update progress state
-      const newProgress = {
-        status: response.status || 'processing',
-        currentRoute: response.currentRoute || 'Processing...',
-        totalRoutes: response.totalRoutes || 0,
-        completedRoutes: response.completedRoutes || 0,
-        failedRoutes: response.failedRoutes || 0,
-        estimatedTimeRemaining: response.estimatedTimeRemaining || 'Calculating...',
-        
-        // Enhanced data collection progress
-        enhancedDataCollection: response.enhancedDataCollection || {
-          attempted: 0,
-          successful: 0,
-          failed: 0,
-          totalRecordsCreated: 0,
-          collectionBreakdown: {}
-        },
-        
-        // Visibility analysis progress  
-        visibilityAnalysis: response.visibilityAnalysis || {
-          attempted: 0,
-          successful: 0,
-          failed: 0,
-          totalSharpTurns: 0,
-          totalBlindSpots: 0,
-          criticalTurns: 0,
-          criticalBlindSpots: 0
-        },
-        
-        // Performance metrics
-        performanceMetrics: response.performanceMetrics || {
-          routesPerMinute: 0,
-          elapsedHours: 0,
-          successRate: 0
-        },
-        
-        // Processing metadata
-        processingMode: response.processingMode,
-        dataCollectionMode: response.dataCollectionMode,
-        backgroundProcessing: response.backgroundProcessing,
-        currentBatch: response.currentBatch,
-        totalBatches: response.totalBatches,
-        
-        timestamp: new Date().toISOString()
-      }
-
-      setProgress(newProgress)
-
-      // Save state for persistence
-      saveProcessingState({
-        processing: true,
-        progress: newProgress,
-        processingId: processingId,
-        options: options
-      })
-
-      // Check if processing is complete
-      if (response.status === 'completed') {
-        console.log('Processing completed!')
-        handleProcessingComplete(response)
-      } else if (response.status === 'failed') {
-        console.log('Processing failed!')
-        handleProcessingFailed(response)
-      } else if (response.status === 'cancelled') {
-        console.log('Processing cancelled!')
-        handleProcessingCancelled(response)
-      }
-
-    } catch (error) {
-      console.error('Progress polling failed:', error)
+      // Visibility analysis progress  
+      visibilityAnalysis: response.visibilityAnalysis || {
+        attempted: 0,
+        successful: 0,
+        failed: 0,
+        totalSharpTurns: 0,
+        totalBlindSpots: 0,
+        criticalTurns: 0,
+        criticalBlindSpots: 0
+      },
       
-      // Handle different types of errors
-      if (error.response?.status === 404) {
-        // No active processing found
-        console.log('No active processing found, stopping polling')
-        handleProcessingComplete(null)
-      } else if (error.response?.status >= 500) {
-        // Server error, continue polling but show warning
-        toast.error('Server error while checking progress. Retrying in 30 seconds...')
-      } else {
-        // Other errors, show message but continue polling
-        console.warn('Progress check failed, will retry:', error.message)
-      }
+      // Performance metrics
+      performanceMetrics: response.performanceMetrics || {
+        routesPerMinute: 0,
+        elapsedHours: 0,
+        successRate: 0
+      },
+      
+      // Processing metadata
+      processingMode: response.processingMode,
+      dataCollectionMode: response.dataCollectionMode,
+      backgroundProcessing: response.backgroundProcessing,
+      currentBatch: response.currentBatch,
+      totalBatches: response.totalBatches,
+      
+      timestamp: new Date().toISOString()
+    }
+
+    setProgress(newProgress)
+
+    // Save state for persistence - but mark as not processing if completed
+    saveProcessingState({
+      processing: response.status !== 'completed' && response.status !== 'failed' && response.status !== 'cancelled',
+      progress: newProgress,
+      processingId: processingId,
+      options: options
+    })
+
+    // Check if processing is complete
+    if (response.status === 'completed') {
+      console.log('Processing completed!')
+      handleProcessingComplete(response)
+    } else if (response.status === 'failed') {
+      console.log('Processing failed!')
+      handleProcessingFailed(response)
+    } else if (response.status === 'cancelled') {
+      console.log('Processing cancelled!')
+      handleProcessingCancelled(response)
+    }
+
+  } catch (error) {
+    console.error('Progress polling failed:', error)
+    
+    // Handle different types of errors
+    if (error.response?.status === 404) {
+      // No active processing found
+      console.log('No active processing found, stopping polling')
+      handleProcessingComplete(null)
+    } else if (error.response?.status >= 500) {
+      // Server error, continue polling but show warning
+      toast.error('Server error while checking progress. Retrying in 30 seconds...')
+    } else {
+      // Other errors, show message but continue polling
+      console.warn('Progress check failed, will retry:', error.message)
     }
   }
+}
   // Handle processing completion
- // Handle processing completion
-  const handleProcessingComplete = (response) => {
-    setProcessing(false)
-    stopProgressPolling()
-    clearProcessingState()
-
-    // Clear progress state to prevent showing stale data
-    setProgress(null)
-
-    if (response && response.results) {
+ // 2. Replace the handleProcessingComplete function (around line 265-295)
+const handleProcessingComplete = (response) => {
+  console.log('Processing completed, response:', response)
+  
+  // Stop polling first
+  stopProgressPolling()
+  
+  // Keep the progress state to show completion
+  if (response && (response.status === 'completed' || response.completedRoutes > 0)) {
+    // Update progress to show completion
+    setProgress(prev => ({
+      ...prev,
+      status: 'completed',
+      currentRoute: 'Processing completed successfully!',
+      results: response.results
+    }))
+    
+    // Show completion toast
+    if (response.results) {
       setResults(response.results)
-      
-      // Show completion message with stats
       const stats = response.results.summary || response.results
       if (stats.totalProcessingTime) {
         toast.success(
-          `Processing completed in ${stats.totalProcessingTime}! ${stats.successful || 0} routes processed successfully.`
+          `Processing completed in ${stats.totalProcessingTime}! ${stats.successful || 0} routes processed successfully.`,
+          { duration: 6000 }
         )
       } else if (stats.enhancedDataCollectionStats) {
         toast.success(
-          `Processing completed! ${stats.successful || 0} routes processed with ${stats.enhancedDataCollectionStats.totalRecordsCreated || 0} data records created.`
+          `Processing completed! ${stats.successful || 0} routes processed with ${stats.enhancedDataCollectionStats.totalRecordsCreated || 0} data records created.`,
+          { duration: 6000 }
         )
       } else {
-        toast.success(`Processing completed! ${stats.successful || 0} routes processed successfully.`)
+        toast.success(`Processing completed! ${response.completedRoutes || 0} routes processed successfully.`, { duration: 6000 })
       }
     } else {
-      toast.success('Processing completed successfully!')
+      toast.success('Processing completed successfully!', { duration: 6000 })
     }
-  }
-
-  // Handle processing failure
-  const handleProcessingFailed = (response) => {
-    setProcessing(false)
-    stopProgressPolling()
-    clearProcessingState()
     
-    const errorMessage = response?.error || response?.message || 'Processing failed'
-    toast.error(`Processing failed: ${errorMessage}`)
-  }
-
-  // Handle processing cancellation
-  const handleProcessingCancelled = (response) => {
-    setProcessing(false)
-    stopProgressPolling()
-    clearProcessingState()
+    // Clear processing state and flag after a delay
+    setTimeout(() => {
+      setProcessing(false)
+      clearProcessingState()
+      // Optionally clear progress after showing completion for a while
+      // setProgress(null)
+    }, 10000) // Keep showing completion status for 10 seconds
     
-    toast('Processing was cancelled', { icon: 'ℹ️' })
+  } else {
+    // No response or no routes processed
+    setProcessing(false)
+    setProgress(null)
+    clearProcessingState()
+    toast.success('Processing completed!', { duration: 4000 })
   }
+}
+
+  // 3. Replace the handleProcessingFailed function (around line 297-305)
+const handleProcessingFailed = (response) => {
+  console.log('Processing failed, response:', response)
+  
+  stopProgressPolling()
+  
+  // Update progress to show failure
+  setProgress(prev => ({
+    ...prev,
+    status: 'failed',
+    currentRoute: 'Processing failed',
+    error: response?.error || response?.message || 'Unknown error'
+  }))
+  
+  const errorMessage = response?.error || response?.message || 'Processing failed'
+  toast.error(`Processing failed: ${errorMessage}`, { duration: 6000 })
+  
+  // Clear state after a delay
+  setTimeout(() => {
+    setProcessing(false)
+    clearProcessingState()
+  }, 5000)
+}
+
+
+  // 4. Replace the handleProcessingCancelled function (around line 307-315)
+const handleProcessingCancelled = (response) => {
+  console.log('Processing cancelled, response:', response)
+  
+  stopProgressPolling()
+  
+  // Update progress to show cancellation
+  setProgress(prev => ({
+    ...prev,
+    status: 'cancelled',
+    currentRoute: 'Processing was cancelled'
+  }))
+  
+  toast('Processing was cancelled', { icon: 'ℹ️', duration: 4000 })
+  
+  // Clear state after a delay
+  setTimeout(() => {
+    setProcessing(false)
+    clearProcessingState()
+    setProgress(null)
+  }, 3000)
+}
 
   const handleFileSelect = (file) => {
     setSelectedFile(file)
